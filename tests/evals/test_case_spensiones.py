@@ -22,6 +22,7 @@ from agintis.modules.knowledge.domain import Chunk
 from agintis.modules.knowledge.infrastructure.chunkers import HfTokenCounter
 from agintis.modules.knowledge.infrastructure.chunkers.splitting import SPECIAL_TOKENS_RESERVE
 from agintis.modules.knowledge.infrastructure.parsers import (
+    OCR_INDEX_CARD_PARSER_KEY,
     OcrNotInstalledError,
     require_ocr_extra,
 )
@@ -77,11 +78,20 @@ def counter() -> HfTokenCounter:
 
 @pytest.fixture(scope="module")
 def results(counter: HfTokenCounter) -> dict[str, SampleResult]:
+    # Without the `ocr` extra the scanned resolution (`ocr_index_card`) is left out: the tests
+    # on it skip (`_result`), the rest still run.
     try:
-        require_ocr_extra()  # the scanned resolution goes through `ocr_index_card`
-    except OcrNotInstalledError as exc:
-        pytest.skip(str(exc))
-    return asyncio.run(ingest_samples(counter))
+        require_ocr_extra()
+        skip: frozenset[str] = frozenset()
+    except OcrNotInstalledError:
+        skip = frozenset({OCR_INDEX_CARD_PARSER_KEY})
+    return asyncio.run(ingest_samples(counter, skip_parsers=skip))
+
+
+def _result(results: dict[str, SampleResult], sample_id: str) -> SampleResult:
+    if sample_id not in results:
+        pytest.skip(f"{sample_id} needs the '{OCR_INDEX_CARD_PARSER_KEY}' parser (ocr extra)")
+    return results[sample_id]
 
 
 def _sample_id(question: dict[str, Any]) -> str:
@@ -96,7 +106,7 @@ def test_there_are_29_eval_questions() -> None:
 def test_each_eval_question_lands_in_exactly_one_chunk_with_its_locator(
     question: dict[str, Any], results: dict[str, SampleResult]
 ) -> None:
-    result = results[_sample_id(question)]
+    result = _result(results, _sample_id(question))
     assert result.profile == question["profile"]
     snippet = normalize(question["expected_snippet"])
     # The first line of a chunk is its heading prefix (document title, path...): the snippet
@@ -122,8 +132,9 @@ def test_chunk_counts_match_the_reference_report(
     sample: str, expected: tuple[str, int], results: dict[str, SampleResult]
 ) -> None:
     profile, count = expected
-    assert results[sample].profile == profile
-    assert len(results[sample].chunks) == count
+    result = _result(results, sample)
+    assert result.profile == profile
+    assert len(result.chunks) == count
 
 
 def test_every_chunk_fits_its_profile_budget(
@@ -158,7 +169,7 @@ def test_the_scanned_resolution_is_read_by_ocr_and_split_by_its_blocks(
     reference only had its index card. The card leads the first chunk, every chunk carries
     the heading prefix and the OCR text is split at the VISTOS / CONSIDERANDO / RESUELVO
     blocks, keeping its page numbers."""
-    chunks = results["cms-aid-17157"].chunks
+    chunks = _result(results, "cms-aid-17157").chunks
     assert {c.metadata["content_mode"] for c in chunks} == {"ocr"}
     assert all(c.text.startswith("Resolución N° 1266 (2026-09-15)\n") for c in chunks)
     assert "que complementa individualización de funcionario sujeto pasivo" in chunks[0].text

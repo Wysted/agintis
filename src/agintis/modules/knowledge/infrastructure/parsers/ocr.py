@@ -25,6 +25,7 @@ from importlib.util import find_spec
 from typing import Any, Final
 
 from agintis.modules.knowledge.application import (
+    DocumentTooLargeError,
     ParsedDocument,
     ParsedSection,
     SourceFile,
@@ -53,7 +54,8 @@ _OCR_MODULES: Final = ("rapidocr", "onnxruntime", "pypdfium2")
 # (the engine already uses every core, so OCR runs under it too).
 _PDFIUM_LOCK: Final = threading.Lock()
 
-type PageOcr = Callable[[bytes], Sequence[str]]  # PDF bytes -> recognized text of each page
+# (PDF bytes, max pages) -> recognized text of each page; over max pages: DocumentTooLargeError
+type PageOcr = Callable[[bytes, int], Sequence[str]]
 type OcrEngine = Callable[[Any], Any]  # PIL RGB image -> result with `txts`
 
 
@@ -86,7 +88,7 @@ class RapidOcrPages:
         self._engine_factory = engine_factory
         self._engine: OcrEngine | None = None
 
-    def __call__(self, content: bytes) -> list[str]:
+    def __call__(self, content: bytes, max_pages: int) -> list[str]:
         import pypdfium2 as pdfium
 
         with _PDFIUM_LOCK:  # also guards the engine's lazy creation
@@ -96,10 +98,15 @@ class RapidOcrPages:
             try:
                 pdf = pdfium.PdfDocument(content)
                 try:
+                    # pypdf validated the page count, but pdfium may count pages differently.
+                    if len(pdf) > max_pages:
+                        raise DocumentTooLargeError(
+                            f"PDF has {len(pdf)} pages for OCR (limit {max_pages})"
+                        )
                     return [_read_page(engine, page) for page in pdf]
                 finally:
                     pdf.close()
-            except MemoryError:
+            except (MemoryError, DocumentTooLargeError):
                 raise
             except Exception as exc:  # PdfiumError (broken file/page), onnxruntime errors...
                 raise UnparseableDocumentError(f"Cannot OCR PDF: {exc}") from exc
@@ -128,11 +135,11 @@ class OcrIndexCardParser(IndexCardParser):
         # Only PDFs raise ScannedDocumentError, after the size and page limits were checked.
         # shortcut: a cancelled ingest does not stop the worker thread (it OCRs up to
         # PARSER_MAX_PAGES pages, ~4 s each); add a per-page cancel check if long scans hurt.
-        pages = await asyncio.to_thread(self._ocr, source.content)
-        title = source.document_metadata.get("title")
+        pages = await asyncio.to_thread(self._ocr, source.content, self._limits.max_pages)
+        card = self._card(source)
         parsed = _sanitize(
             ParsedDocument(
-                title=title if isinstance(title, str) else "",
+                title=card.title if card else "",
                 sections=tuple(
                     ParsedSection(text=text, page=number)
                     for number, text in enumerate(pages, start=1)
@@ -142,6 +149,5 @@ class OcrIndexCardParser(IndexCardParser):
             source.uri,
         )
         if not parsed.sections:
-            return await super()._scanned(source)
-        card = self._card(source)
+            return card
         return replace(parsed, sections=(*card.sections, *parsed.sections)) if card else parsed

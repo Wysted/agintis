@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from agintis.modules.knowledge.api import (
+    DocumentTooLargeError,
     ScannedDocumentError,
     SourceFile,
     UnparseableDocumentError,
@@ -16,6 +17,7 @@ from agintis.modules.knowledge.api import (
 from agintis.modules.knowledge.infrastructure.parsers import (
     OcrIndexCardParser,
     OcrNotInstalledError,
+    ParseLimits,
     SimpleParser,
     require_ocr_extra,
 )
@@ -33,9 +35,11 @@ class FakeOcr:
     def __init__(self, pages: Sequence[str]) -> None:
         self.pages = pages
         self.calls = 0
+        self.max_pages: int | None = None
 
-    def __call__(self, content: bytes) -> Sequence[str]:
+    def __call__(self, content: bytes, max_pages: int) -> Sequence[str]:
         self.calls += 1
+        self.max_pages = max_pages
         return self.pages
 
 
@@ -82,8 +86,10 @@ class TestOcrIndexCardParser:
         assert parsed.collected["content_mode"] == ("full_text",)
         assert ocr.calls == 0
 
-    def test_its_version_names_the_text_parser_and_the_ocr_engine(self) -> None:
-        assert OcrIndexCardParser.version == f"{SimpleParser.version}+{OCR_ENGINE}+card"
+    async def test_the_page_limit_reaches_the_ocr(self) -> None:
+        ocr = FakeOcr(["text"])
+        await OcrIndexCardParser(ParseLimits(max_pages=7), ocr).parse(_pdf(make_blank_pdf(1)))
+        assert ocr.max_pages == 7
 
     def test_the_engine_in_the_version_is_the_installed_one(self) -> None:
         try:
@@ -132,7 +138,7 @@ class TestRapidOcrPages:
             created.append(1)
             return engine
 
-        pages = RapidOcrPages(factory)(make_pdf(["anything", ""]))
+        pages = RapidOcrPages(factory)(make_pdf(["anything", ""]), 2)
         assert pages == ["line one\nline two", ""]
         # The engine gets the PIL image (it converts RGB to BGR itself; an array would be read
         # as BGR). 612 pt wide at 300 dpi (pdfium may round the height up a pixel).
@@ -152,14 +158,18 @@ class TestRapidOcrPages:
             sizes.append(image.size)
             return SimpleNamespace(txts=None)
 
-        RapidOcrPages(lambda: engine)(make_pdf([""]))  # 612 x 792 pt: 8.4 Mpx at 300 dpi
+        RapidOcrPages(lambda: engine)(make_pdf([""]), 1)  # 612 x 792 pt: 8.4 Mpx at 300 dpi
         ((width, height),) = sizes
         assert width * height <= cap + width + height  # pdfium rounds up to a whole pixel
         assert width * height > cap * 0.95
 
+    def test_more_pages_than_the_limit_are_refused_before_any_ocr(self) -> None:
+        with pytest.raises(DocumentTooLargeError, match=r"3 pages for OCR \(limit 2\)"):
+            RapidOcrPages(lambda: _unused_engine)(make_pdf(["a", "b", "c"]), 2)
+
     def test_a_broken_file_is_unparseable(self) -> None:
         with pytest.raises(UnparseableDocumentError, match="Cannot OCR PDF"):
-            RapidOcrPages(lambda: _unused_engine)(b"%PDF-1.4 broken")
+            RapidOcrPages(lambda: _unused_engine)(b"%PDF-1.4 broken", 1)
 
     def test_a_page_that_fails_to_render_is_unparseable(
         self, monkeypatch: pytest.MonkeyPatch
@@ -171,21 +181,21 @@ class TestRapidOcrPages:
 
         monkeypatch.setattr(pdfium.PdfPage, "render", broken)
         with pytest.raises(UnparseableDocumentError, match="Failed to render page"):
-            RapidOcrPages(lambda: _unused_engine)(make_pdf(["a"]))
+            RapidOcrPages(lambda: _unused_engine)(make_pdf(["a"]), 1)
 
     def test_an_engine_failure_is_unparseable(self) -> None:
         def engine(image: Any) -> Any:
             raise RuntimeError("onnxruntime: invalid input")
 
         with pytest.raises(UnparseableDocumentError, match="onnxruntime"):
-            RapidOcrPages(lambda: engine)(make_pdf(["a"]))
+            RapidOcrPages(lambda: engine)(make_pdf(["a"]), 1)
 
     def test_memory_errors_are_not_converted(self) -> None:
         def engine(image: Any) -> Any:
             raise MemoryError
 
         with pytest.raises(MemoryError):
-            RapidOcrPages(lambda: engine)(make_pdf(["a"]))
+            RapidOcrPages(lambda: engine)(make_pdf(["a"]), 1)
 
 
 def _unused_engine(image: Any) -> Any:
