@@ -93,7 +93,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/hf_cache"
           # Keep image and args in sync with the `tei` service in docker-compose.yml.
           docker run -d --name tei -p 8081:80 -v "$RUNNER_TEMP/hf_cache:/data" \
-            ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.3 \
+            ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4 \
             --model-id=BAAI/bge-m3 --max-client-batch-size=16 --max-batch-tokens=1024 \
             --max-concurrent-requests=32 --auto-truncate
           for _ in $(seq 1 90); do
