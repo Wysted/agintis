@@ -51,7 +51,17 @@ Runs on test2 (3), dev (2). test2 = 16 originals / 32 errors.
 | test2 citation originals passing | 16/16 | 15-16/16 | 14-16/16 |
 
 - Dev v6: faithfulness originals 15-16/16, errors 30/30; citation originals 15/16, errors 28/28.
-- Known weakness: `condition_deletion`, 1/4 caught.
+- `condition_deletion`, 1/4 caught. Error analysis (2026-10-17) found that the perturbation set, not
+  the judge, accounts for most of the misses:
+  - in-cmp-15~p1 and in-faq-31~p1 are invalid perturbations: the question already states the deleted
+    condition ("firmada por un afiliado cesante", "si tengo contrato indefinido"), so in context the
+    perturbed answer is still correct. The judge said so ("la pregunta la establece").
+  - in-ncg-22~p2 is ambiguous: reserves held by insurance companies exist only under renta vitalicia,
+    so dropping "si era pensionado bajo renta vitalicia" makes the bullet less specific, not false.
+  - in-cmp-01~p2, the only clear case, is caught.
+
+  A `condition_deletion` spec must not delete a condition the question states. The test2 numbers
+  above are left as measured.
 - Silver agreement (v4, old labels, superseded by the 4.1c numbers below): `in_dev` faithfulness 97.1%,
   citation 94.3%, relevance 97.5%, refusal 100%; `ood` refusal 97.5%.
 
@@ -98,7 +108,16 @@ Judge v9 vs the new consensus, golden dumps, 3 judge runs.
 - answer_relevance: `in_dev` 95% (kappa 0.72).
 - faithfulness: `in_dev` 94-97% (1 negative: kappa unstable, read AC1).
 - citation_support: `in_dev` 83-89%: the judge is stricter than the labelers (4-6 judge=false where
-  consensus=true).
+  consensus=true). Reading the 6 disagreements of `v42c/golden_in_dev_{1,2}.json` against the sources
+  (2026-10-17), the judge is right or defensible in 5:
+  - in-cmp-13: "solo" turns a permission into an exhaustive rule and drops the inventory requirement.
+  - in-cmp-16: the source limits the minimum contribution to independent workers (arts. 90 and 92).
+  - in-cir-28: the sentence leaves out the 80/20 weighting.
+  - in-ncg-19: a minor dropped condition ("una vez recibida la notificación").
+  - in-ncg-17: borderline, and the verdict flips between runs.
+
+  in-cmp-05 is unclear. The silver rationales are generic and never discuss conditions, so this
+  agreement is a floor, not a judge error rate.
 
 ## Judge v10 (part 4.2c)
 
