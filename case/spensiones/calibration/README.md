@@ -9,6 +9,34 @@ Dev sets for `python -m agintis.cli.calibrate_evidence` (never the held-out `eva
 - A threshold is valid only for the corpus snapshot, tenant, embedding model and profiles in the
   report `meta`. Recalibrate after a re-ingest.
 
+## Routing dev set 2 (`routing_dev2.jsonl`)
+
+49 `in` questions in the eval format (`profile`, `expected_snippet`, `locator`, `type`) over the
+34-document corpus of `samples/_manifest.json` (fetch it with `case/spensiones/fetch_samples.py`).
+Use it for routing and retrieval experiments; it is a dev set, never a held-out one.
+
+- Corpus: the original 8 samples plus a date-ordered selection made without looking at any score:
+  10 historical CAFP circulars (rate tables excluded), 6 NCGs (NP 366-371), 7 FAQ-style articles
+  and 3 normativa resolutions. Five articles whose body is loaded by JavaScript were dropped.
+- Writing: three blind writers worked from the extracted document text, without access to the
+  router, the probes or any score. At most 30% of the questions name a document.
+- Checks: every snippet is in a ready chunk of its gold profile (mechanical check); 4 questions too
+  close to `eval_questions.jsonl`, `in_dev.jsonl`, `retrieval_dev.jsonl` or `ood.jsonl` (token
+  Jaccard >= 0.5) were dropped without reading those files into a prompt.
+- Gold profiles: compendio 11, articulo_faq 9, ncg 9, circular 9, jurisprudencia_indice 8,
+  resolucion 3.
+
+Pre-registered results (2026-10-17), evidence router, tenant with this corpus:
+
+| Router | hit@1 | any selected | compendio hit@1 | topics/question | old `retrieval_dev` hit@1 |
+|---|---|---|---|---|---|
+| max, no bias (current) | 34/49 | 39 | 11/11 | 1.22 | 34/39 |
+| per-topic bias from the `ood.jsonl` medians | 38/49 | 42 | 9/11 | 1.20 | 32/39 |
+
+The bias variant failed two of the five criteria (compendio and the old set may drop by at most
+one question), so the router keeps `max` without biases. The set confirms the size bias: 10 of the
+15 misses of the current router go to compendio.
+
 ## Label verification (near-domain `out` items)
 
 Method (content only, scores were NOT used or looked at to decide): for each of the 36

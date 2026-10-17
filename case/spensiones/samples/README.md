@@ -1,5 +1,7 @@
 # Muestras para analisis de chunking - spensiones.cl
 
+> Actualizacion 2026-10-17: `_manifest.json` lista 34 muestras (las 8 de abajo mas 26 elegidas por fecha para `calibration/routing_dev2.jsonl`). Descargalas con `uv run python case/spensiones/fetch_samples.py` (secuencial, 3,5 s entre requests). Las secciones siguientes describen las 8 originales.
+
 Generado a partir de `index/documents.jsonl` (8.174 filas) y de 8 descargas reales (maximo permitido: 8, secuenciales, >= 3,5 s entre requests, UA `agintis-corpus-survey/1.0`). No hubo recursion. `raw_html/` no existe en esta carpeta, por lo que todas las muestras se descargaron.
 
 ## 1. Perfil del indice
