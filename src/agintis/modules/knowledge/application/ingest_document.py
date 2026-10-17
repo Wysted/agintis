@@ -97,9 +97,9 @@ def _strategy_versions(
     chunker: Chunker,
     cleaners: Sequence[tuple[Cleaner, CleanerSpec]],
     resolver: MetadataResolver | None = None,
-) -> dict[str, int]:
+) -> dict[str, int | str]:
     """Implementation versions of the strategies about to run (feed the profile fingerprint)."""
-    versions = {
+    versions: dict[str, int | str] = {
         f"parser:{profile.parser_key}": parser.version,
         f"chunker:{profile.chunker_key}": chunker.version,
     }

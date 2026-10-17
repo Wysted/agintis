@@ -69,6 +69,10 @@ from agintis.modules.knowledge.api import (
 from agintis.modules.knowledge.domain import ChunkRepository, DocumentRepository
 from agintis.modules.knowledge.infrastructure.chunkers import HfTokenCounter
 from agintis.modules.knowledge.infrastructure.errors import RetrievalErrorClassifier
+from agintis.modules.knowledge.infrastructure.parsers import (
+    OCR_INDEX_CARD_PARSER_KEY,
+    require_ocr_extra,
+)
 from agintis.modules.knowledge.infrastructure.postgres import (
     MetadataIndexSync,
     PgChunkRepository,
@@ -230,6 +234,8 @@ class Container:
             extractor_schemas=extractor_param_schemas(),
             transform_schemas=transform_param_schemas(),
         )
+        if any(p.parser_key == OCR_INDEX_CARD_PARSER_KEY for p in profiles.all()):
+            require_ocr_extra()  # a missing `ocr` extra fails here, not at the first scanned PDF
         profile_router = ProfileRouter(profiles.all())
         # Fail fast on `indexed` declarations no single index can serve (ConflictingIndexError).
         expected_metadata_indexes(f for p in profiles.all() for f in p.metadata_fields)

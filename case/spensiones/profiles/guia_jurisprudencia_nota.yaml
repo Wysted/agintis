@@ -10,7 +10,7 @@ routing:
     priority: 10     # narrower than the generic article rule of articulo_faq
 top_k: 5
 chunk_max_tokens: 600
-parser_key: simple              # scanned notes would need an OCR parser (docling): not available yet
+parser_key: simple              # scanned notes would need `ocr_index_card` (`ocr` extra)
 cleaners:
   - key: strip_repeated_page_lines
     params: {zone_lines_top: 3, zone_lines_bottom: 3, min_page_ratio: 0.5, min_pages: 2, normalize_digits: true}

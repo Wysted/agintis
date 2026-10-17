@@ -63,7 +63,7 @@ def parse_pdf(content: bytes, uri: str, context: ParseContext) -> ParsedDocument
         raise ScannedDocumentError(
             f"{uri!r} has no usable text layer in {len(textless)} of {len(pages)} pages "
             "(scanned PDF?). The 'simple' parser does not do OCR: ingest it with a profile "
-            "that uses the 'docling' parser."
+            "that uses the 'ocr_index_card' parser (`ocr` extra)."
         )
     if textless:
         logger.warning(

@@ -84,7 +84,7 @@ Todos los ajustes están documentados en [docs/configuration.es.md](docs/configu
 
 ```bash
 docker compose up -d db embeddings
-uv sync --all-extras                 # or pick extras: openai, anthropic, ollama, deepseek, otel
+uv sync --all-extras                 # or pick extras: openai, anthropic, ollama, deepseek, otel, ocr
 uv run alembic upgrade head
 uv run python -m agintis.cli.checkpointer_setup
 uv run uvicorn agintis.main:create_app --factory --reload
@@ -109,6 +109,9 @@ Al hacer push de un tag `vX.Y.Z` que coincide con la versión de `pyproject.toml
 
 Un caso es un directorio `case/<name>/`. `case/fastapi_es` es el ejemplo completo (corpus en Markdown,
 dos perfiles); `case/spensiones` es el más grande (PDF/HTML, siete perfiles, filtros de metadatos).
+Sus resoluciones escaneadas se leen con OCR (parser `ocr_index_card`, RapidOCR en CPU, ~4 s por
+página), que requiere el extra `ocr`: `uv sync --extra ocr` más los otros extras que uses
+(`--all-extras` lo incluye); Docker: `docker compose --profile app build --build-arg UV_EXTRAS="openai otel ocr"`.
 
 1. `profiles/*.yaml`: un perfil de recuperación por familia de documentos (parser, limpiadores, chunker,
    ajustes de embeddings/búsqueda) más reglas de enrutamiento. No hay registro que editar.

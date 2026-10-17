@@ -27,7 +27,7 @@ Para correrlo: `uv run --no-project --python 3.12 --with tokenizers --with pyyam
 > | `page_end` como extractor | `page` / `page_end` son campos built-in |
 > | `max_tokens` / `fallback_overlap` en `chunker_params` | el presupuesto es `chunk_max_tokens` del perfil |
 > | `heading_prefix_template` con `{system}`, `{libro}`, `{title_short}` | variables = campos de la fila del índice (`{area}`, `{number}`, `{date}`, `{title:70}`) |
-> | `on_scanned: index_card` | `parser_key: simple_index_card` (el OCR con docling sigue sin implementar) |
+> | `on_scanned: index_card` | `parser_key: ocr_index_card` (OCR con RapidOCR, extra `ocr`; sin texto OCR, la ficha) |
 > | `spensiones_articulo_faq`: chunker `structured` con unión de secciones | chunker `whole_document` (un chunk si cabe, si no `structured`) |
 >
 > `validation/validate_profiles.py` y `check_eval.py` leen la forma del prototipo: son la referencia histórica de comportamiento y ya no corren contra estos YAML. La aceptación vive ahora en `tests/evals/test_case_spensiones.py`.
@@ -41,7 +41,7 @@ Para correrlo: `uv run --no-project --python 3.12 --with tokenizers --with pyyam
 | `spensiones_circular` | `doc_type=circular` (2.520) | `simple` / `pattern_hierarchy` | número (`1.` / `2.-`) y secciones VIGENCIA/ANEXO al mismo nivel; el preámbulo (MATERIA/VISTOS/REF.) va en un chunk propio | 600 | `circular_number`, `series`, `issued_date`, `effective_from`, `listing_tab`, `modifies_circulars[]` |
 | `spensiones_articulo_faq` | `doc_type=articulo_html`, excepto los títulos "Resolución Exenta…" | `simple` + cleaner HTML / `structured` (ya existe) | documento completo (pregunta + respuesta). Las páginas guía se cortan por subtítulos en negrita | 512 | `aid`, `audiences[]`, `keywords[]`, `related_aids[]`, `is_question` |
 | `spensiones_jurisprudencia_indice` | `guia_faq` con título "Libro de Jurisprudencia" | `simple` / `records` | tema (`7.`) con sus registros `7.12.4. tema  Of. Ord. N° …` | 400 | `materia`, `tema`, `oficio_refs[]` |
-| `spensiones_resolucion` | `doc_type=resolucion` + 6 `articulo_html` "Resolución Exenta…" | `simple`, con `on_scanned: index_card` y `docling` OCR opcional / `pattern_hierarchy` (VISTOS/CONSIDERANDO/RESUELVO, sin validar) | ficha del índice (1 chunk) u OCR | 600 | `resolution_number`, `issued_date`, `content_mode`, `topic_class` |
+| `spensiones_resolucion` | `doc_type=resolucion` + 6 `articulo_html` "Resolución Exenta…" | `ocr_index_card` (texto, si no OCR RapidOCR, si no ficha) / `pattern_hierarchy` (VISTOS/CONSIDERANDO/RESUELVO, sin validar) | ficha del índice (1 chunk) u OCR | 600 | `resolution_number`, `issued_date`, `content_mode`, `topic_class` |
 
 Fuentes de metadata usadas:
 
@@ -161,7 +161,7 @@ Límites conocidos:
 - El índice no trae ninguna señal de capa de texto. La única muestra es una impresión web a PDF con 4 páginas de imagen y 0 caracteres, y el parser `simple` lanza `ScannedDocumentError`.
 - Recomendación:
   - Etapa 1: `index_card` (título + descripción del índice, que tienen 247 de 281 resoluciones). Es casi gratis y permite citarlas por número y fecha.
-  - Etapa 2: OCR opcional con `docling` (perfil compose opcional, tesseract `spa`) solo para las 185 resoluciones de "Normativa del Sistema de Pensiones / Seguro de Cesantía". Las de lobby, subrogancias y temas institucionales quedan solo con ficha.
+  - Etapa 2 (implementada): OCR con RapidOCR (parser `ocr_index_card`, extra `ocr`, ~4 s por página en CPU). Se aplica a todas las resoluciones del perfil, no solo a las 185 de "Normativa del Sistema de Pensiones / Seguro de Cesantía"; si el OCR no encuentra texto queda la ficha.
 - La proporción real de documentos que necesitan OCR se mide en la etapa 1 contando los `ScannedDocumentError` (la prueba con pypdf tarda milisegundos). Hoy el único dato es 1 de 1.
 
 **4.4 Familias mal clasificadas.** Recomiendo enrutar por **campos del índice más overrides deterministas** de título y sección, y no por detección de contenido. Es barato, ocurre antes de descargar, es explicable y se puede testear.

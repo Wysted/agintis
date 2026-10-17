@@ -9,6 +9,7 @@ import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from types import MappingProxyType
+from typing import ClassVar
 
 from agintis.modules.knowledge.application import (
     DocumentTooLargeError,
@@ -89,7 +90,7 @@ def _sanitize(parsed: ParsedDocument, uri: str) -> ParsedDocument:
 class SimpleParser(Parser):
     # 2: HTML extraction on lxml (implied end tags, block boundaries, meta charset sniffing).
     # 3: Markdown headings drop a trailing attribute block (`{ #id }`).
-    version = 3
+    version: ClassVar[int | str] = 3  # str: subclasses may name an engine (see Parser.version)
 
     def __init__(self, limits: ParseLimits | None = None) -> None:
         self._limits = limits if limits is not None else ParseLimits()

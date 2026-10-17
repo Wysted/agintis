@@ -1,7 +1,7 @@
 """Parser "simple_index_card": `simple`, falling back to an index card for scanned PDFs.
 
-A scanned document has no text for the lightweight parser (OCR needs docling). Rather than
-failing the ingest, this parser indexes the document's CARD: the `title` and `description` the
+A scanned document has no text for the lightweight parser (`ocr_index_card` adds OCR). Rather
+than failing the ingest, this parser indexes the document's CARD: the `title` and `description` the
 caller supplied in `SourceFile.document_metadata` (a crawler index row), so the document can
 still be found and cited. It reports which path it took as `collected["content_mode"]`
 (`full_text` | `index_card`), readable as a `parsed:content_mode` metadata source.
@@ -30,16 +30,20 @@ class IndexCardParser(SimpleParser):
         try:
             parsed = await super().parse(source)
         except ScannedDocumentError:
-            card = self._card(source)
-            if card is None:
+            fallback = await self._scanned(source)
+            if fallback is None:
                 raise
-            return card
+            return fallback
         return ParsedDocument(
             title=parsed.title,
             sections=parsed.sections,
             source_html=parsed.source_html,
             collected={**parsed.collected, CONTENT_MODE_KEY: ("full_text",)},
         )
+
+    async def _scanned(self, source: SourceFile) -> ParsedDocument | None:
+        """What a scanned document becomes (`None` = re-raise `ScannedDocumentError`)."""
+        return self._card(source)
 
     @staticmethod
     def _card(source: SourceFile) -> ParsedDocument | None:

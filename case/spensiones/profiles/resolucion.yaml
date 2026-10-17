@@ -1,17 +1,15 @@
 # Resoluciones (index doc_type=resolucion 281 rows + 6 articulo_html rows titled
 # "Resolución Exenta ..."). The sample (cms-aid-17157) is a browser print-to-PDF with
-# 4 image-only pages and 0 extractable characters: the existing `simple` parser raises
-# ScannedDocumentError. Two-stage plan:
-#   stage 1 (default, cheap): ingest the index card only (title + description from the
-#           crawler row) as ONE chunk, so resolutions are findable and citable by number/date.
-#   stage 2 (opt-in, `docling` parser with OCR): full text for the 186 rows under
-#           "Normativa del Sistema de Pensiones / Seguro de Cesantía"; the 57+ lobby /
-#           subrogation / institutional rows stay card-only.
+# 4 image-only pages and 0 extractable characters: the `simple` parser raises
+# ScannedDocumentError. `ocr_index_card` then OCRs every page (RapidOCR, needs the `ocr` uv
+# extra: `uv sync --extra ocr`, Docker UV_EXTRAS="... ocr"; ~4 s per page on CPU) and, when
+# OCR finds no text, ingests the index card (title + description from the crawler row) as
+# ONE chunk, so the resolution is still findable and citable by number/date.
 # Body layout (VISTOS / CONSIDERANDO / RESUELVO) is the standard Chilean administrative
-# act; NOT validated (sample has no text).
+# act; NOT validated on OCR text.
 key: spensiones_resolucion
 schema_version: 1
-# Status: the index-card mode is validated; the OCR mode (docling) is unvalidated and not wired.
+# Status: the index-card mode is validated; the OCR mode is wired but its chunking is unvalidated.
 routing:
   - match: {doc_type: [resolucion]}
   # Narrower than the generic article rule of articulo_faq: higher priority wins.
@@ -19,9 +17,9 @@ routing:
     priority: 10
 top_k: 5
 chunk_max_tokens: 600
-# `simple_index_card` = `simple`, but a scanned PDF falls back to the index card (title +
-# description of the document metadata) and reports `parsed:content_mode`.
-parser_key: simple_index_card
+# `ocr_index_card` = `simple`, but a scanned PDF goes through OCR, then falls back to the index
+# card (title + description of the document metadata); reports `parsed:content_mode`.
+parser_key: ocr_index_card
 cleaners:
   - key: strip_repeated_page_lines
     params: {zone_lines_top: 4, zone_lines_bottom: 4, min_page_ratio: 0.5, min_pages: 2, normalize_digits: true}
@@ -63,7 +61,7 @@ metadata_fields:
     source: 'document:section'
     transforms: [{key: path_segment, params: {take: last}}]
     filterable: true
-  - {name: content_mode, type: str,  source: 'parsed:content_mode',  filterable: true}   # full_text | index_card
+  - {name: content_mode, type: str,  source: 'parsed:content_mode',  filterable: true}   # full_text | ocr | index_card
   - name: topic_class     # normativa | institucional | lobby
     type: str
     source: 'extractor:classify'

@@ -54,8 +54,8 @@ class TestPdf:
         parsed = await SimpleParser().parse(_src(pdf, PDF))
         assert [s.page for s in parsed.sections] == [1, 3]
 
-    async def test_scanned_pdf_suggests_docling(self) -> None:
-        with pytest.raises(ScannedDocumentError, match="docling"):
+    async def test_scanned_pdf_suggests_the_ocr_parser(self) -> None:
+        with pytest.raises(ScannedDocumentError, match="ocr_index_card"):
             await SimpleParser().parse(_src(make_blank_pdf(3), PDF))
 
     async def test_minority_of_textless_pages_is_dropped_and_logged(

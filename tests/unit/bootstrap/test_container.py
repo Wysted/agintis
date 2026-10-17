@@ -19,6 +19,7 @@ from agintis.modules.knowledge.api import (
     UnknownStrategyError,
 )
 from agintis.modules.knowledge.domain import MetadataField, RagProfile
+from agintis.modules.knowledge.infrastructure.parsers import OcrNotInstalledError
 from agintis.modules.knowledge.infrastructure.postgres import (
     PgChunkRepository,
     PgDocumentRepository,
@@ -69,7 +70,7 @@ def test_build_wires_strategies_from_settings() -> None:
             parser={"max_pages": 5},
         )
     )
-    assert set(container.parsers) == {"simple", "simple_index_card"}
+    assert set(container.parsers) == {"simple", "simple_index_card", "ocr_index_card"}
     assert set(container.chunkers) == {
         "structured",
         "whole_document",
@@ -95,6 +96,23 @@ def test_build_wires_the_spensiones_case_profiles_router_and_batch_ingest() -> N
 def test_build_registers_the_index_card_parser() -> None:
     container = Container.build(make_settings())
     assert container.parsers["simple_index_card"] is not container.parsers["simple"]
+
+
+def test_build_fails_when_a_profile_needs_the_missing_ocr_extra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "scans.yaml").write_text(
+        "key: scans\ntop_k: 4\nchunk_max_tokens: 300\nparser_key: ocr_index_card\n"
+        "chunker_key: structured\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "agintis.modules.knowledge.infrastructure.parsers.ocr.find_spec", lambda name: None
+    )
+    with pytest.raises(OcrNotInstalledError, match="'ocr' extra"):
+        Container.build(make_settings(knowledge={"profiles_dir": tmp_path}))
+    # Without such a profile the extra is never checked.
+    Container.build(make_settings())
 
 
 def test_build_registers_the_whitelisted_cleaners() -> None:

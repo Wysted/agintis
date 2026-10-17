@@ -44,8 +44,10 @@ from agintis.modules.knowledge.infrastructure.extractors import (
 )
 from agintis.modules.knowledge.infrastructure.parsers import (
     INDEX_CARD_PARSER_KEY,
+    OCR_INDEX_CARD_PARSER_KEY,
     SIMPLE_PARSER_KEY,
     IndexCardParser,
+    OcrIndexCardParser,
     ParseLimits,
     SimpleParser,
 )
@@ -79,6 +81,8 @@ def build_parsers(
     return {
         SIMPLE_PARSER_KEY: SimpleParser(limits),
         INDEX_CARD_PARSER_KEY: IndexCardParser(limits),
+        # Always registered (nothing imported until a scanned PDF): bootstrap checks the extra.
+        OCR_INDEX_CARD_PARSER_KEY: OcrIndexCardParser(limits),
     }
 
 

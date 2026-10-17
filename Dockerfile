@@ -3,9 +3,10 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 
-# uv extras to install: LLM providers (openai, anthropic, ollama, deepseek) and `otel` (tracing, needed when
-# OBSERVABILITY_TRACING=otlp), space or comma separated; empty = none.
-# Default "openai otel"; example: docker build --build-arg UV_EXTRAS="anthropic otel" .
+# uv extras to install: LLM providers (openai, anthropic, ollama, deepseek), `otel` (tracing, needed when
+# OBSERVABILITY_TRACING=otlp) and `ocr` (parser ocr_index_card; its models ship in the rapidocr wheel,
+# so OCR works offline), space or comma separated; empty = none.
+# Default "openai otel"; example: docker build --build-arg UV_EXTRAS="anthropic otel ocr" .
 ARG UV_EXTRAS="openai otel"
 
 # Dependencies first (cached layer)

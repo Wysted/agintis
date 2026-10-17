@@ -39,7 +39,7 @@ class UnsupportedDocumentTypeError(DomainError):
 class ScannedDocumentError(DomainError):
     """The document has no extractable text layer (e.g. a scanned PDF).
 
-    The lightweight parser does not do OCR; use a profile whose parser supports it (docling).
+    The lightweight parser does not do OCR; use a profile whose parser does (`ocr_index_card`).
     """
 
 

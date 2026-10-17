@@ -617,7 +617,7 @@ class RagProfile:
         """Fingerprint of the profile alone (every strategy at its baseline version)."""
         return self.fingerprint_for()
 
-    def fingerprint_for(self, strategy_versions: Mapping[str, int] | None = None) -> str:
+    def fingerprint_for(self, strategy_versions: Mapping[str, int | str] | None = None) -> str:
         """Stable hash of everything that changes how a document is parsed and chunked.
 
         Declared metadata fields count by (name, type, source): renaming, retyping or changing

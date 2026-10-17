@@ -19,8 +19,9 @@ from agintis.shared_kernel.ids import TenantId
 class Parser(ABC):
     # Strategy implementation version, part of the profile fingerprint (see `RagProfile`).
     # Bump it when a change to the code or its defaults can change the output: documents
-    # ingested with the old behavior are then re-indexed. 1 = baseline (not hashed).
-    version: ClassVar[int] = 1
+    # ingested with the old behavior are then re-indexed. 1 = baseline (not hashed). A string
+    # may name what the output depends on beyond the code (e.g. an OCR engine and its model).
+    version: ClassVar[int | str] = 1
 
     @abstractmethod
     async def parse(self, source: SourceFile) -> ParsedDocument: ...

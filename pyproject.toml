@@ -52,6 +52,13 @@ otel = [
 deepseek = [
     "langchain-deepseek>=1.1.1,<2",
 ]
+# OCR of scanned PDFs (parser `ocr_index_card`). Pinned exactly: the engine and its default
+# model are part of that parser's version. Docker: build-arg UV_EXTRAS="... ocr".
+ocr = [
+    "onnxruntime>=1.7,<2",
+    "pypdfium2>=4,<6",
+    "rapidocr==3.10.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -98,8 +105,9 @@ warn_unreachable = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-# pgvector ships no type information.
-module = ["pgvector.*"]
+# pgvector and pypdfium2 ship no type information; rapidocr (typed) is absent without the `ocr`
+# extra (its imports are lazy, so the app and the unit tests run without it).
+module = ["pgvector.*", "pypdfium2.*", "rapidocr.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

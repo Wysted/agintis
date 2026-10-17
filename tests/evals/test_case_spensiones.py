@@ -40,8 +40,8 @@ QUESTIONS: list[dict[str, Any]] = (
     else []
 )
 
-# sample id -> (profile, chunks in the reference report). The only divergence is documented in
-# `test_resolution_card_carries_the_heading_prefix_the_reference_left_out`.
+# sample id -> (profile, chunks in the reference report). The only divergence is the scanned
+# resolution: the reference indexed its card (1 chunk), we OCR it (see `test_the_scanned_...`).
 REFERENCE_CHUNK_COUNTS = {
     "compendio-sp-libro-i": ("spensiones_compendio", 1413),
     "circular-2425": ("spensiones_circular", 9),
@@ -49,7 +49,7 @@ REFERENCE_CHUNK_COUNTS = {
     "ncg-sp-372": ("spensiones_ncg", 17),
     "cms-aid-14843": ("spensiones_jurisprudencia_indice", 57),
     "cms-aid-3590": ("spensiones_articulo_faq", 1),
-    "cms-aid-17157": ("spensiones_resolucion", 1),
+    "cms-aid-17157": ("spensiones_resolucion", 6),
 }
 CHUNK_BUDGETS = {
     "spensiones_compendio": 700,
@@ -143,16 +143,23 @@ def test_compendio_token_distribution_is_close_to_the_reference(
     assert sum(sizes) == pytest.approx(311_555, rel=0.01)
 
 
-def test_resolution_card_carries_the_heading_prefix_the_reference_left_out(
-    results: dict[str, SampleResult], counter: HfTokenCounter
+def test_the_scanned_resolution_is_read_by_ocr_and_split_by_its_blocks(
+    results: dict[str, SampleResult],
 ) -> None:
-    """The scanned sample falls back to its index card (`content_mode: index_card`). The
-    reference chunked the bare card (74 tokens); here it is a preamble chunk of the profile
-    and so starts with the `heading_prefix_template` (83 tokens)."""
-    (chunk,) = results["cms-aid-17157"].chunks
-    assert chunk.metadata["content_mode"] == "index_card"
-    assert chunk.text.startswith("Resolución N° 1266 (2026-09-15)\n")
-    assert counter.count(chunk.text) == 83
+    """The image-only sample goes through OCR (`ocr_index_card`, needs the `ocr` extra); the
+    reference only had its index card. Every chunk carries the heading prefix and the OCR
+    text is split at the VISTOS / CONSIDERANDO / RESUELVO blocks, keeping its page numbers
+    (OCR read "VISTOs:", hence the heading "VISTO")."""
+    chunks = results["cms-aid-17157"].chunks
+    assert {c.metadata["content_mode"] for c in chunks} == {"ocr"}
+    assert all(c.text.startswith("Resolución N° 1266 (2026-09-15)\n") for c in chunks)
+    assert [c.metadata["heading"] for c in chunks] == [
+        "Encabezado",
+        "VISTO",
+        *["CONSIDERANDO"] * 3,
+        "RESUELVO",
+    ]
+    assert (chunks[0].metadata["page"], chunks[-1].metadata["page_end"]) == (1, 4)
 
 
 def test_a_navigation_hub_is_not_routed(results: dict[str, SampleResult]) -> None:
