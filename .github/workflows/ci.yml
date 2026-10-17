@@ -69,14 +69,13 @@ jobs:
           enable-cache: true
       - run: uv sync --all-extras
 
-      # Same extensions as docker/postgres/init; template1 so test databases inherit them.
+      # Same extensions as docker/postgres/init, and only in the app database like it: tests create
+      # them in their own databases, and the unprivileged-migrator tests need a database without them.
       - name: Create extensions
         run: |
-          for db in agintis template1; do
-            psql -h localhost -U postgres -d "$db" \
-              -c "CREATE EXTENSION IF NOT EXISTS vector" \
-              -c "CREATE EXTENSION IF NOT EXISTS unaccent"
-          done
+          psql -h localhost -U postgres -d agintis \
+            -c "CREATE EXTENSION IF NOT EXISTS vector" \
+            -c "CREATE EXTENSION IF NOT EXISTS unaccent"
 
       # TEI runs as a step (not a `services:` container) so the HF model cache can be restored
       # BEFORE it starts: service containers start before any step. The cache holds the bge-m3
