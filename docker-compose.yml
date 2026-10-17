@@ -1,5 +1,5 @@
 x-tei: &tei
-  image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.3
+  image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4
   restart: unless-stopped
   volumes:
     - hf_cache:/data
