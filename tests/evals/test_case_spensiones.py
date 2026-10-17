@@ -21,11 +21,6 @@ from agintis.cli.eval_metrics import chunk_body, locator_matches, normalize
 from agintis.modules.knowledge.domain import Chunk
 from agintis.modules.knowledge.infrastructure.chunkers import HfTokenCounter
 from agintis.modules.knowledge.infrastructure.chunkers.splitting import SPECIAL_TOKENS_RESERVE
-from agintis.modules.knowledge.infrastructure.parsers import (
-    OCR_INDEX_CARD_PARSER_KEY,
-    OcrNotInstalledError,
-    require_ocr_extra,
-)
 from tests.support.case_spensiones import (
     PROFILES_DIR,
     SampleResult,
@@ -45,8 +40,8 @@ QUESTIONS: list[dict[str, Any]] = (
     else []
 )
 
-# sample id -> (profile, chunks in the reference report). The only divergence is the scanned
-# resolution: the reference indexed its card (1 chunk), we OCR it (see `test_the_scanned_...`).
+# sample id -> (profile, chunks in the reference report). The only divergence is documented in
+# `test_resolution_card_carries_the_heading_prefix_the_reference_left_out`.
 REFERENCE_CHUNK_COUNTS = {
     "compendio-sp-libro-i": ("spensiones_compendio", 1413),
     "circular-2425": ("spensiones_circular", 9),
@@ -54,7 +49,7 @@ REFERENCE_CHUNK_COUNTS = {
     "ncg-sp-372": ("spensiones_ncg", 17),
     "cms-aid-14843": ("spensiones_jurisprudencia_indice", 57),
     "cms-aid-3590": ("spensiones_articulo_faq", 1),
-    "cms-aid-17157": ("spensiones_resolucion", 6),
+    "cms-aid-17157": ("spensiones_resolucion", 1),
 }
 CHUNK_BUDGETS = {
     "spensiones_compendio": 700,
@@ -78,20 +73,7 @@ def counter() -> HfTokenCounter:
 
 @pytest.fixture(scope="module")
 def results(counter: HfTokenCounter) -> dict[str, SampleResult]:
-    # Without the `ocr` extra the scanned resolution (`ocr_index_card`) is left out: the tests
-    # on it skip (`_result`), the rest still run.
-    try:
-        require_ocr_extra()
-        skip: frozenset[str] = frozenset()
-    except OcrNotInstalledError:
-        skip = frozenset({OCR_INDEX_CARD_PARSER_KEY})
-    return asyncio.run(ingest_samples(counter, skip_parsers=skip))
-
-
-def _result(results: dict[str, SampleResult], sample_id: str) -> SampleResult:
-    if sample_id not in results:
-        pytest.skip(f"{sample_id} needs the '{OCR_INDEX_CARD_PARSER_KEY}' parser (ocr extra)")
-    return results[sample_id]
+    return asyncio.run(ingest_samples(counter))
 
 
 def _sample_id(question: dict[str, Any]) -> str:
@@ -106,7 +88,7 @@ def test_there_are_29_eval_questions() -> None:
 def test_each_eval_question_lands_in_exactly_one_chunk_with_its_locator(
     question: dict[str, Any], results: dict[str, SampleResult]
 ) -> None:
-    result = _result(results, _sample_id(question))
+    result = results[_sample_id(question)]
     assert result.profile == question["profile"]
     snippet = normalize(question["expected_snippet"])
     # The first line of a chunk is its heading prefix (document title, path...): the snippet
@@ -132,9 +114,8 @@ def test_chunk_counts_match_the_reference_report(
     sample: str, expected: tuple[str, int], results: dict[str, SampleResult]
 ) -> None:
     profile, count = expected
-    result = _result(results, sample)
-    assert result.profile == profile
-    assert len(result.chunks) == count
+    assert results[sample].profile == profile
+    assert len(results[sample].chunks) == count
 
 
 def test_every_chunk_fits_its_profile_budget(
@@ -162,24 +143,16 @@ def test_compendio_token_distribution_is_close_to_the_reference(
     assert sum(sizes) == pytest.approx(311_555, rel=0.01)
 
 
-def test_the_scanned_resolution_is_read_by_ocr_and_split_by_its_blocks(
-    results: dict[str, SampleResult],
+def test_resolution_card_carries_the_heading_prefix_the_reference_left_out(
+    results: dict[str, SampleResult], counter: HfTokenCounter
 ) -> None:
-    """The image-only sample goes through OCR (`ocr_index_card`, needs the `ocr` extra); the
-    reference only had its index card. The card leads the first chunk, every chunk carries
-    the heading prefix and the OCR text is split at the VISTOS / CONSIDERANDO / RESUELVO
-    blocks, keeping its page numbers."""
-    chunks = _result(results, "cms-aid-17157").chunks
-    assert {c.metadata["content_mode"] for c in chunks} == {"ocr"}
-    assert all(c.text.startswith("Resolución N° 1266 (2026-09-15)\n") for c in chunks)
-    assert "que complementa individualización de funcionario sujeto pasivo" in chunks[0].text
-    assert [c.metadata["heading"] for c in chunks] == [
-        "Encabezado",
-        "VISTOS",
-        *["CONSIDERANDO"] * 3,
-        "RESUELVO",
-    ]
-    assert (chunks[0].metadata["page"], chunks[-1].metadata["page_end"]) == (1, 4)
+    """The scanned sample falls back to its index card (`content_mode: index_card`). The
+    reference chunked the bare card (74 tokens); here it is a preamble chunk of the profile
+    and so starts with the `heading_prefix_template` (83 tokens)."""
+    (chunk,) = results["cms-aid-17157"].chunks
+    assert chunk.metadata["content_mode"] == "index_card"
+    assert chunk.text.startswith("Resolución N° 1266 (2026-09-15)\n")
+    assert counter.count(chunk.text) == 83
 
 
 def test_a_navigation_hub_is_not_routed(results: dict[str, SampleResult]) -> None:

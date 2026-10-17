@@ -616,7 +616,7 @@ Pensiones”, tuvo la dirección general del fiscal de la Superintendencia, Mari
 
 Marcadores estructurales observados:
 
-- Sin capa de texto: cada pagina es una imagen (4 XObject de imagen). Requiere OCR antes de chunkear (el perfil `spensiones_resolucion` usa el parser `ocr_index_card`, extra `ocr`)
+- Sin capa de texto: cada pagina es una imagen (4 XObject de imagen). Requiere OCR antes de chunkear (opt-in: parser `ocr_index_card`, extra `ocr`; el perfil `spensiones_resolucion` usa la ficha)
 - Por el titulo de la ficha del indice se esperaria: `Resolución Exenta N° 1266, del 15 de septiembre de 2026, que complementa...` (estructura de resolucion exenta: encabezado, considerandos `VISTOS`/`CONSIDERANDO`, `RESUELVO`)
 - Anotacion para el pipeline: el texto de la pagina HTML de la resolucion (`w3-article-17157.html`) si tiene titulo y descripcion, fuente alternativa al OCR
 

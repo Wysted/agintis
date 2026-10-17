@@ -59,12 +59,8 @@ class SampleResult:
     error: str | None = None
 
 
-async def ingest_samples(
-    counter: TokenCounter, skip_parsers: frozenset[str] = frozenset()
-) -> dict[str, SampleResult]:
-    """Ingest every downloaded sample with the profile the router picks; results by sample id.
-
-    Samples whose profile uses a parser in `skip_parsers` are left out (no result)."""
+async def ingest_samples(counter: TokenCounter) -> dict[str, SampleResult]:
+    """Ingest every downloaded sample with the profile the router picks; results by sample id."""
     limits = ParseLimits()
     profiles = load_profiles_dir(PROFILES_DIR)
     router = ProfileRouter(profiles)
@@ -80,8 +76,6 @@ async def ingest_samples(
         selection = router.select(source.document_metadata)
         if selection.profile is None:
             results[sample_id] = SampleResult(sample_id, None, (), selection.reason)
-            continue
-        if selection.profile.parser_key in skip_parsers:
             continue
         chunks = InMemoryChunkRepository()
         documents = InMemoryDocumentRepository()

@@ -110,9 +110,10 @@ Pushing a tag `vX.Y.Z` that matches the `pyproject.toml` version runs
 
 A case is a directory `case/<name>/`. `case/fastapi_es` is the worked example (Markdown corpus,
 two profiles); `case/spensiones` is the larger one (PDF/HTML, seven profiles, metadata filters).
-Its scanned resolutions are read by OCR (parser `ocr_index_card`, RapidOCR on CPU, ~4 s per page),
-which needs the `ocr` extra: `uv sync --extra ocr` plus the other extras you use (`--all-extras`
-includes it); Docker: `docker compose --profile app build --build-arg UV_EXTRAS="openai otel ocr"`.
+Its scanned resolutions are ingested as index cards; OCR for scanned PDFs is opt-in (parser
+`ocr_index_card`, RapidOCR on CPU, ~4 s per page) and needs the `ocr` extra: `uv sync --extra ocr`
+plus the other extras you use (`--all-extras` includes it); Docker:
+`docker compose --profile app build --build-arg UV_EXTRAS="openai otel ocr"`.
 
 1. `profiles/*.yaml`: one retrieval profile per document family (parser, cleaners, chunker,
    embedding/search settings) plus routing rules. No registry to edit.
