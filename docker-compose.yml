@@ -127,7 +127,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: agintis-app
+    image: ${APP_IMAGE:-agintis-app}
     env_file: .env
     # No case mount: the migrate CLIs never read profiles or agent specs.
     environment: *app-env
@@ -145,7 +145,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: agintis-app
+    image: ${APP_IMAGE:-agintis-app}
     env_file: .env
     restart: unless-stopped
     environment:

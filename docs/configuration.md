@@ -187,6 +187,7 @@ Read by `docker-compose.yml` (not by `Settings`). Secrets live in `.env`, which 
 | `POSTGRES_DB` | none | yes | no | Database name. |
 | `POSTGRES_PORT` | `5432` | no | no | Host port (bound to 127.0.0.1) of `db`. |
 | `CASE` | `fastapi_es` | no | no | Case directory under `case/` mounted read-only at `/app/case` in `app` only (`migrate` does not need it). It must exist: a missing directory fails at `up`. |
+| `APP_IMAGE` | `agintis-app` | no | no | Image of `migrate` and `app`. Compose builds it locally unless it was pulled first (e.g. `ghcr.io/wysted/agintis:0.1.0`). |
 | `APP_EMBEDDINGS_TOKENIZER` | `/app/models/bge-m3/tokenizer.json` | no | no | Becomes `EMBEDDINGS_TOKENIZER` inside the containers. Change it with another `EMBEDDINGS_MODEL`. |
 | `APP_OTLP_ENDPOINT` | `http://phoenix:6006/v1/traces` | no | no | Becomes `OBSERVABILITY_OTLP_ENDPOINT` inside the containers. |
 | `APP_LLM_PROFILES_FILE` | empty (unset) | no | no | Becomes `LLM_PROFILES_FILE` inside the containers: a CONTAINER path (e.g. `/app/case/llm_profiles.yaml`). |
