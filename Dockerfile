@@ -31,7 +31,7 @@ ADD --checksum=sha256:21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba278
     https://huggingface.co/BAAI/bge-m3/resolve/5617a9f61b028005a4858fdac845db406aefb181/tokenizer.json \
     /bge-m3/tokenizer.json
 
-FROM python:3.12.13-slim-bookworm AS runtime
+FROM python:3.12.15-slim-bookworm AS runtime
 ENV PYTHONUNBUFFERED=1 PATH="/app/.venv/bin:$PATH" \
     EMBEDDINGS_TOKENIZER=/app/models/bge-m3/tokenizer.json
 RUN groupadd --system app && useradd --system --gid app --create-home app
