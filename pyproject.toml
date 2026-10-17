@@ -52,11 +52,11 @@ otel = [
 deepseek = [
     "langchain-deepseek>=1.1.1,<2",
 ]
-# OCR of scanned PDFs (parser `ocr_index_card`). Pinned exactly: the engine and its default
-# model are part of that parser's version. Docker: build-arg UV_EXTRAS="... ocr".
+# OCR of scanned PDFs (parser `ocr_index_card`). rapidocr is pinned exactly: the engine and
+# its default model are part of that parser's version. Docker: build-arg UV_EXTRAS="... ocr".
 ocr = [
-    "onnxruntime>=1.7,<2",
-    "pypdfium2>=4,<6",
+    "onnxruntime>=1.31.0,<2",
+    "pypdfium2>=5.14.0,<6",
     "rapidocr==3.10.0",
 ]
 

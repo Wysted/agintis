@@ -111,7 +111,7 @@ async def test_ingest_and_eval_run_with_the_checkpointer_disabled(
 ) -> None:
     built: list[Any] = []
 
-    def spy(settings: Any) -> Container:
+    def spy(settings: Any, **kwargs: Any) -> Container:
         built.append(settings)
         raise _Entered
 

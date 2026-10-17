@@ -8,13 +8,18 @@ from typing import Any
 
 import pytest
 
-from agintis.modules.knowledge.api import ScannedDocumentError, SourceFile
+from agintis.modules.knowledge.api import (
+    ScannedDocumentError,
+    SourceFile,
+    UnparseableDocumentError,
+)
 from agintis.modules.knowledge.infrastructure.parsers import (
     OcrIndexCardParser,
     OcrNotInstalledError,
     SimpleParser,
     require_ocr_extra,
 )
+from agintis.modules.knowledge.infrastructure.parsers import ocr as ocr_module
 from agintis.modules.knowledge.infrastructure.parsers.ocr import OCR_ENGINE, RapidOcrPages
 from agintis.modules.knowledge.infrastructure.registry import build_parsers
 from tests.support.documents import make_blank_pdf, make_pdf
@@ -43,8 +48,9 @@ class TestOcrIndexCardParser:
         ocr = FakeOcr(["VISTOS:\nLo dispuesto", "", "RESUELVO:\n1. Apruébase"])
         parsed = await OcrIndexCardParser(ocr=ocr).parse(_pdf(make_blank_pdf(3), **CARD))
         assert parsed.title == "Resolución N° 1266"
-        # Empty pages are dropped, the others keep their page number.
+        # The index card leads (no page); empty pages are dropped, the others keep their number.
         assert [(s.text, s.page) for s in parsed.sections] == [
+            ("Resolución N° 1266\n\nComplementa la individualización.", None),
             ("VISTOS:\nLo dispuesto", 1),
             ("RESUELVO:\n1. Apruébase", 3),
         ]
@@ -54,7 +60,7 @@ class TestOcrIndexCardParser:
     async def test_without_a_title_the_ocr_text_is_titled_by_its_uri(self) -> None:
         parsed = await OcrIndexCardParser(ocr=FakeOcr(["text"])).parse(_pdf(make_blank_pdf(1)))
         assert parsed.title == "u"
-        assert parsed.sections[0].text == "text"
+        assert [s.text for s in parsed.sections] == ["text"]  # no title: no card section
 
     async def test_no_ocr_text_falls_back_to_the_index_card(self) -> None:
         parser = OcrIndexCardParser(ocr=FakeOcr([" ", "\x00"]))
@@ -77,7 +83,7 @@ class TestOcrIndexCardParser:
         assert ocr.calls == 0
 
     def test_its_version_names_the_text_parser_and_the_ocr_engine(self) -> None:
-        assert OcrIndexCardParser.version == f"{SimpleParser.version}+{OCR_ENGINE}"
+        assert OcrIndexCardParser.version == f"{SimpleParser.version}+{OCR_ENGINE}+card"
 
     def test_the_engine_in_the_version_is_the_installed_one(self) -> None:
         try:
@@ -106,8 +112,13 @@ class TestRequireOcrExtra:
 class TestRapidOcrPages:
     """The real renderer with a fake engine (needs pypdfium2 from the `ocr` extra)."""
 
-    def test_each_page_is_rendered_and_its_text_boxes_joined_by_lines(self) -> None:
+    @pytest.fixture(autouse=True)
+    def _pdfium(self) -> None:
         pytest.importorskip("pypdfium2")
+
+    def test_each_page_is_rendered_and_its_text_boxes_joined_by_lines(self) -> None:
+        from PIL import Image
+
         images: list[Any] = []
         answers = iter([("line one", "line two"), None])
 
@@ -123,7 +134,59 @@ class TestRapidOcrPages:
 
         pages = RapidOcrPages(factory)(make_pdf(["anything", ""]))
         assert pages == ["line one\nline two", ""]
-        # 612 pt wide at 300 dpi, RGB (pdfium may round the height up a pixel).
-        assert [image.shape[1:] for image in images] == [(2550, 3)] * 2
+        # The engine gets the PIL image (it converts RGB to BGR itself; an array would be read
+        # as BGR). 612 pt wide at 300 dpi (pdfium may round the height up a pixel).
+        assert all(isinstance(image, Image.Image) and image.mode == "RGB" for image in images)
+        assert [image.width for image in images] == [2550] * 2
         RapidOcrPages(factory)  # building alone creates no engine
         assert created == [1]
+
+    def test_a_page_over_the_pixel_cap_is_rendered_smaller(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cap = 100_000
+        monkeypatch.setattr(ocr_module, "MAX_OCR_PIXELS", cap)
+        sizes: list[tuple[int, int]] = []
+
+        def engine(image: Any) -> SimpleNamespace:
+            sizes.append(image.size)
+            return SimpleNamespace(txts=None)
+
+        RapidOcrPages(lambda: engine)(make_pdf([""]))  # 612 x 792 pt: 8.4 Mpx at 300 dpi
+        ((width, height),) = sizes
+        assert width * height <= cap + width + height  # pdfium rounds up to a whole pixel
+        assert width * height > cap * 0.95
+
+    def test_a_broken_file_is_unparseable(self) -> None:
+        with pytest.raises(UnparseableDocumentError, match="Cannot OCR PDF"):
+            RapidOcrPages(lambda: _unused_engine)(b"%PDF-1.4 broken")
+
+    def test_a_page_that_fails_to_render_is_unparseable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import pypdfium2 as pdfium
+
+        def broken(*args: Any, **kwargs: Any) -> Any:
+            raise pdfium.PdfiumError("Failed to render page")
+
+        monkeypatch.setattr(pdfium.PdfPage, "render", broken)
+        with pytest.raises(UnparseableDocumentError, match="Failed to render page"):
+            RapidOcrPages(lambda: _unused_engine)(make_pdf(["a"]))
+
+    def test_an_engine_failure_is_unparseable(self) -> None:
+        def engine(image: Any) -> Any:
+            raise RuntimeError("onnxruntime: invalid input")
+
+        with pytest.raises(UnparseableDocumentError, match="onnxruntime"):
+            RapidOcrPages(lambda: engine)(make_pdf(["a"]))
+
+    def test_memory_errors_are_not_converted(self) -> None:
+        def engine(image: Any) -> Any:
+            raise MemoryError
+
+        with pytest.raises(MemoryError):
+            RapidOcrPages(lambda: engine)(make_pdf(["a"]))
+
+
+def _unused_engine(image: Any) -> Any:
+    raise AssertionError("the engine must not run")

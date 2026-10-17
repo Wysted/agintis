@@ -21,6 +21,10 @@ from agintis.cli.eval_metrics import chunk_body, locator_matches, normalize
 from agintis.modules.knowledge.domain import Chunk
 from agintis.modules.knowledge.infrastructure.chunkers import HfTokenCounter
 from agintis.modules.knowledge.infrastructure.chunkers.splitting import SPECIAL_TOKENS_RESERVE
+from agintis.modules.knowledge.infrastructure.parsers import (
+    OcrNotInstalledError,
+    require_ocr_extra,
+)
 from tests.support.case_spensiones import (
     PROFILES_DIR,
     SampleResult,
@@ -73,6 +77,10 @@ def counter() -> HfTokenCounter:
 
 @pytest.fixture(scope="module")
 def results(counter: HfTokenCounter) -> dict[str, SampleResult]:
+    try:
+        require_ocr_extra()  # the scanned resolution goes through `ocr_index_card`
+    except OcrNotInstalledError as exc:
+        pytest.skip(str(exc))
     return asyncio.run(ingest_samples(counter))
 
 
@@ -147,15 +155,16 @@ def test_the_scanned_resolution_is_read_by_ocr_and_split_by_its_blocks(
     results: dict[str, SampleResult],
 ) -> None:
     """The image-only sample goes through OCR (`ocr_index_card`, needs the `ocr` extra); the
-    reference only had its index card. Every chunk carries the heading prefix and the OCR
-    text is split at the VISTOS / CONSIDERANDO / RESUELVO blocks, keeping its page numbers
-    (OCR read "VISTOs:", hence the heading "VISTO")."""
+    reference only had its index card. The card leads the first chunk, every chunk carries
+    the heading prefix and the OCR text is split at the VISTOS / CONSIDERANDO / RESUELVO
+    blocks, keeping its page numbers."""
     chunks = results["cms-aid-17157"].chunks
     assert {c.metadata["content_mode"] for c in chunks} == {"ocr"}
     assert all(c.text.startswith("Resolución N° 1266 (2026-09-15)\n") for c in chunks)
+    assert "que complementa individualización de funcionario sujeto pasivo" in chunks[0].text
     assert [c.metadata["heading"] for c in chunks] == [
         "Encabezado",
-        "VISTO",
+        "VISTOS",
         *["CONSIDERANDO"] * 3,
         "RESUELVO",
     ]

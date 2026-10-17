@@ -2,9 +2,10 @@
 # "Resolución Exenta ..."). The sample (cms-aid-17157) is a browser print-to-PDF with
 # 4 image-only pages and 0 extractable characters: the `simple` parser raises
 # ScannedDocumentError. `ocr_index_card` then OCRs every page (RapidOCR, needs the `ocr` uv
-# extra: `uv sync --extra ocr`, Docker UV_EXTRAS="... ocr"; ~4 s per page on CPU) and, when
-# OCR finds no text, ingests the index card (title + description from the crawler row) as
-# ONE chunk, so the resolution is still findable and citable by number/date.
+# extra: `uv sync --extra ocr`, Docker UV_EXTRAS="... ocr"; ~4 s per page on CPU), with the
+# index card (title + description from the crawler row) as a leading section; when OCR finds
+# no text, it ingests the card alone as ONE chunk, so the resolution is still findable and
+# citable by number/date.
 # Body layout (VISTOS / CONSIDERANDO / RESUELVO) is the standard Chilean administrative
 # act; NOT validated on OCR text.
 key: spensiones_resolucion

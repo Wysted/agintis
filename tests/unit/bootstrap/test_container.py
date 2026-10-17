@@ -98,7 +98,7 @@ def test_build_registers_the_index_card_parser() -> None:
     assert container.parsers["simple_index_card"] is not container.parsers["simple"]
 
 
-def test_build_fails_when_a_profile_needs_the_missing_ocr_extra(
+def test_an_ingest_build_fails_when_a_profile_needs_the_missing_ocr_extra(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / "scans.yaml").write_text(
@@ -109,10 +109,13 @@ def test_build_fails_when_a_profile_needs_the_missing_ocr_extra(
     monkeypatch.setattr(
         "agintis.modules.knowledge.infrastructure.parsers.ocr.find_spec", lambda name: None
     )
+    settings = make_settings(knowledge={"profiles_dir": tmp_path})
     with pytest.raises(OcrNotInstalledError, match="'ocr' extra"):
-        Container.build(make_settings(knowledge={"profiles_dir": tmp_path}))
+        Container.build(settings, for_ingest=True)
+    # The app never parses: it boots on the same profiles without the extra.
+    Container.build(settings)
     # Without such a profile the extra is never checked.
-    Container.build(make_settings())
+    Container.build(make_settings(), for_ingest=True)
 
 
 def test_build_registers_the_whitelisted_cleaners() -> None:

@@ -366,7 +366,8 @@ def _fake_container(prune_result: list[object] | None, calls: list[tuple[object,
         profiles = _FakeProfiles()
 
         @classmethod
-        def build(cls, settings: object) -> "FakeContainer":
+        def build(cls, settings: object, *, for_ingest: bool) -> "FakeContainer":
+            assert for_ingest  # the ingest path checks the parsers' extras at boot
             return cls()
 
         async def __aenter__(self) -> "FakeContainer":

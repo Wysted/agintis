@@ -3,18 +3,24 @@
 Chain: the `simple` parser (text layer) -> on `ScannedDocumentError`, OCR of every page
 (pypdfium2 renders it at `OCR_DPI`, RapidOCR reads it; one section per page with one line per
 text box, like the text path, so page cleaners such as `strip_repeated_page_lines` keep working)
--> when OCR finds no text, the index card. `collected["content_mode"]` is `full_text` | `ocr` |
+-> when OCR finds no text, the index card. With OCR text, the index card (when the metadata has
+a title) still leads as a page-less first section: its curated title and description read
+better than OCR of the same header. `collected["content_mode"]` is `full_text` | `ocr` |
 `index_card`.
 
 Needs the `ocr` uv extra. Its packages are imported lazily; bootstrap calls `require_ocr_extra`
-when a profile uses this parser, so a missing extra fails the boot, not an ingest. OCR is
+on the ingest path when a profile uses this parser, so a missing extra fails the ingest boot,
+not the first scanned PDF (the app never parses: it boots without the extra). OCR is
 CPU-bound (seconds per page): it runs in a worker thread, with one engine per parser created
-on first use.
+on first use. Any rendering or OCR failure (except MemoryError) is an `UnparseableDocumentError`:
+it fails that document, not the batch.
 """
 
 import asyncio
+import math
 import threading
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from importlib.util import find_spec
 from typing import Any, Final
 
@@ -37,11 +43,18 @@ OCR_EXTRA: Final = "ocr"
 # wheel ships these default models): part of the parser version, so changing them re-indexes.
 OCR_ENGINE: Final = "rapidocr-3.10.0/PP-OCRv6-small"
 OCR_DPI: Final = 300
+# Pixel cap per rendered page: 4x an A4 page at 300 dpi (2480 x 3508 px, ~35 Mpx, ~100 MB RGB).
+# Up to A2 renders at full OCR_DPI; a bigger MediaBox (a tiny PDF can declare one) is scaled
+# down instead of allocating a multi-GB bitmap.
+MAX_OCR_PIXELS: Final = 4 * 2480 * 3508
 _PDF_POINTS_PER_INCH: Final = 72
 _OCR_MODULES: Final = ("rapidocr", "onnxruntime", "pypdfium2")
+# pdfium is not thread-safe process-wide: one document at a time across every parser instance
+# (the engine already uses every core, so OCR runs under it too).
+_PDFIUM_LOCK: Final = threading.Lock()
 
 type PageOcr = Callable[[bytes], Sequence[str]]  # PDF bytes -> recognized text of each page
-type OcrEngine = Callable[[Any], Any]  # RGB image array -> result with `txts`
+type OcrEngine = Callable[[Any], Any]  # PIL RGB image -> result with `txts`
 
 
 class OcrNotInstalledError(RuntimeError):
@@ -72,34 +85,40 @@ class RapidOcrPages:
     def __init__(self, engine_factory: Callable[[], OcrEngine] = _rapidocr) -> None:
         self._engine_factory = engine_factory
         self._engine: OcrEngine | None = None
-        # One document at a time: pdfium is not thread-safe and the engine already uses every
-        # core; the same lock guards the engine's lazy creation.
-        self._lock = threading.Lock()
 
     def __call__(self, content: bytes) -> list[str]:
-        import numpy as np
         import pypdfium2 as pdfium
 
-        with self._lock:
+        with _PDFIUM_LOCK:  # also guards the engine's lazy creation
             if self._engine is None:
                 self._engine = self._engine_factory()
             engine = self._engine
             try:
                 pdf = pdfium.PdfDocument(content)
-            except Exception as exc:  # pdfium raises PdfiumError on a broken file
-                raise UnparseableDocumentError(f"Cannot render PDF for OCR: {exc}") from exc
-            try:
-                pages = []
-                for page in pdf:
-                    image = page.render(scale=OCR_DPI / _PDF_POINTS_PER_INCH).to_pil()
-                    pages.append("\n".join(engine(np.array(image)).txts or ()))
-                return pages
-            finally:
-                pdf.close()
+                try:
+                    return [_read_page(engine, page) for page in pdf]
+                finally:
+                    pdf.close()
+            except MemoryError:
+                raise
+            except Exception as exc:  # PdfiumError (broken file/page), onnxruntime errors...
+                raise UnparseableDocumentError(f"Cannot OCR PDF: {exc}") from exc
+
+
+def _read_page(engine: OcrEngine, page: Any) -> str:
+    width, height = page.get_size()  # points
+    scale = min(OCR_DPI / _PDF_POINTS_PER_INCH, math.sqrt(MAX_OCR_PIXELS / (width * height)))
+    # RapidOCR converts a PIL image from RGB to its BGR input (a bare ndarray is taken as BGR).
+    # shortcut: one line per text box, so a spaced header comes out one word per line; merge
+    # boxes on the same visual line (`result.boxes` y-overlap) when chunking/search needs it.
+    return "\n".join(engine(page.render(scale=scale).to_pil()).txts or ())
 
 
 class OcrIndexCardParser(IndexCardParser):
-    version = f"{SimpleParser.version}+{OCR_ENGINE}"
+    # shortcut: a mixed PDF (mostly text, a few scanned pages) never reaches OCR: `parse_pdf`
+    # drops its textless pages (logged); OCR those pages when a corpus has such documents.
+    # `+card`: the index card leads the OCR text (changing that layout re-indexes too).
+    version = f"{SimpleParser.version}+{OCR_ENGINE}+card"
 
     def __init__(self, limits: ParseLimits | None = None, ocr: PageOcr | None = None) -> None:
         super().__init__(limits)
@@ -122,4 +141,7 @@ class OcrIndexCardParser(IndexCardParser):
             ),
             source.uri,
         )
-        return parsed if parsed.sections else await super()._scanned(source)
+        if not parsed.sections:
+            return await super()._scanned(source)
+        card = self._card(source)
+        return replace(parsed, sections=(*card.sections, *parsed.sections)) if card else parsed

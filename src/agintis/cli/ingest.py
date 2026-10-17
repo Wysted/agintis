@@ -166,7 +166,7 @@ async def run(args: argparse.Namespace, emit: Callable[[BatchOutcome], None]) ->
     samples: Path = args.samples or args.index.parent.parent / "samples"
     missing: list[str] = []
     items = local_items(args.index, samples, args.limit, missing)
-    async with Container.build(settings) as container:
+    async with Container.build(settings, for_ingest=True) as container:
         tenant = TenantId(args.tenant)
         outcomes: list[BatchOutcome] = []
         async for outcome in container.ingest_batch.stream(
