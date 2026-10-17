@@ -1,5 +1,7 @@
 # Configuration
 
+**English** | [Español](configuration.es.md)
+
 Everything is configured with environment variables (a `.env` file is read too; real environment
 variables win). The source of truth is `src/agintis/bootstrap/settings.py`: nested groups keep
 flat names (`EMBEDDINGS_URL`, never `EMBEDDINGS__URL`). An empty value means "unset" for optional

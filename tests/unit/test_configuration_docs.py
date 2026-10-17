@@ -1,15 +1,18 @@
-"""docs/configuration.md rows must match the environment variables `Settings` accepts."""
+"""The docs/configuration*.md rows must match the environment variables `Settings` accepts."""
 
 import re
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings
 
 from agintis.bootstrap.settings import Settings
 
-DOC = Path(__file__).resolve().parents[2] / "docs" / "configuration.md"
+DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
+DOCS = [DOCS_DIR / "configuration.md", DOCS_DIR / "configuration.es.md"]
+COMPOSE_HEADING = r"## (?:Compose-only variables|Variables solo de Compose)"
 
 
 def _is_group(field: FieldInfo) -> bool:
@@ -37,15 +40,16 @@ def settings_env_names() -> set[str]:
     return names
 
 
-def documented_settings_names() -> set[str]:
+def documented_settings_names(doc: Path) -> set[str]:
     """Names in the table rows (`| `NAME` |`) of the sections before "Compose-only variables"."""
-    text = DOC.read_text(encoding="utf-8").split("## Compose-only variables")[0]
+    text = re.split(COMPOSE_HEADING, doc.read_text(encoding="utf-8"))[0]
     return set(re.findall(r"^\| `([A-Z][A-Z0-9_]*)` \|", text, flags=re.MULTILINE))
 
 
-def test_documented_rows_match_settings_env_vars() -> None:
+@pytest.mark.parametrize("doc", DOCS, ids=lambda p: p.name)
+def test_documented_rows_match_settings_env_vars(doc: Path) -> None:
     names = settings_env_names()
-    documented = documented_settings_names()
+    documented = documented_settings_names(doc)
     assert len(names) > 50, "the walk found suspiciously few variables"
 
     assert not names - documented, f"missing rows: {', '.join(sorted(names - documented))}"

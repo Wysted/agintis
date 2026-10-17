@@ -1,5 +1,7 @@
 # Case: FastAPI docs in Spanish
 
+**English** | [Español](README.es.md)
+
 Second example case of the template. It exists to show the template is generic: a Markdown corpus
 (not PDF/HTML), an index without titles (they come from each page's H1, with the `{ #id }`
 heading attributes dropped by the Markdown parser), a different domain and two profiles/topics.
@@ -15,9 +17,11 @@ retrieval or thresholds on it (nor calibrate with it).
 
 Needs the compose `db` and `embeddings` services (see the main README).
 
-    uv run --no-project --python 3.12 python -I case/fastapi_es/fetch/fetch.py
-    uv run python -m agintis.cli.ingest --profiles case/fastapi_es/profiles \
-        --index case/fastapi_es/index/documents.jsonl
+```bash
+uv run --no-project --python 3.12 python -I case/fastapi_es/fetch/fetch.py
+uv run python -m agintis.cli.ingest --profiles case/fastapi_es/profiles \
+    --index case/fastapi_es/index/documents.jsonl
+```
 
 After a re-fetch that changed or dropped source URIs, add `--prune` to the ingest (full index, no
 `--limit`): it removes the READY documents of these profiles whose source is no longer in the
@@ -28,10 +32,12 @@ and never run two ingests over the same profiles concurrently, or they prune eac
 The agent id is `fastapi-es-rag`. Calibrate the evidence thresholds on the dev sets (read-only;
 `--analyze` scores the analyzer's standalone query like the runtime and needs the `LLM_*` keys):
 
-    uv run python -m agintis.cli.calibrate_evidence --profiles case/fastapi_es/profiles \
-        --agents case/fastapi_es/agents --agent fastapi-es-rag --analyze \
-        --report case/fastapi_es/calibration/report.json \
-        case/fastapi_es/calibration/in_dev.jsonl case/fastapi_es/calibration/ood.jsonl
+```bash
+uv run python -m agintis.cli.calibrate_evidence --profiles case/fastapi_es/profiles \
+    --agents case/fastapi_es/agents --agent fastapi-es-rag --analyze \
+    --report case/fastapi_es/calibration/report.json \
+    case/fastapi_es/calibration/in_dev.jsonl case/fastapi_es/calibration/ood.jsonl
+```
 
 Serve the agent with `KNOWLEDGE_PROFILES_DIR=case/fastapi_es/profiles`,
 `AGENTS_DIR=case/fastapi_es/agents` and the `LLM_*` settings. For `cli.dump_answers` / `cli.judge`

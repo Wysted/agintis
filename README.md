@@ -1,5 +1,7 @@
 # agintis
 
+**English** | [Español](README.es.md)
+
 **agintis** — a LangGraph template for RAG agents that cite their sources, refuse what they can't answer, and measure both.
 
 It is a Python modular monolith (one
