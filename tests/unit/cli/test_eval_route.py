@@ -31,6 +31,8 @@ from agintis.modules.knowledge.api import (
     BM25_HYBRID_RETRIEVAL_MODE,
     DENSE_RETRIEVAL_MODE,
     HYBRID_RETRIEVAL_MODE,
+    ScoredChunk,
+    TextSearchConfigError,
 )
 from agintis.platform.llm import ChatModels
 from agintis.shared_kernel.ids import TenantId
@@ -313,11 +315,11 @@ class TestModeSets(_RunHelpers):
     async def _container(self, *, bm25: bool) -> Container:
         container = await _container(ChatModels(None))
 
-        async def require_bm25_index() -> None:
+        async def require_pg_textsearch() -> None:
             if not bm25:
                 raise StartupError("retrieval_mode bm25_hybrid needs the pg_textsearch extension")
 
-        container.require_bm25_index = require_bm25_index  # type: ignore[method-assign]
+        container.require_pg_textsearch = require_pg_textsearch  # type: ignore[method-assign]
         return container
 
     async def test_all_runs_every_mode_where_the_bm25_index_exists(
@@ -339,6 +341,21 @@ class TestModeSets(_RunHelpers):
         report = await eval_cli.run(self._args(questions_file, mode="all"))
         assert list(report["modes"]) == [DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE]
         assert "pg_textsearch" in report["skipped_modes"][BM25_HYBRID_RETRIEVAL_MODE]
+
+    async def test_all_skips_bm25_hybrid_when_the_tenant_has_no_bm25_index(
+        self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
+    ) -> None:
+        """pg_textsearch is there, but the tenant was ingested while no profile used bm25_hybrid."""
+        container = await self._container(bm25=True)
+
+        async def unindexed(*args: object, **kwargs: object) -> list[ScoredChunk]:
+            raise TextSearchConfigError("Tenant 'default' has chunks but no BM25 index")
+
+        monkeypatch.setattr(container.chunks, "search_bm25", unindexed)
+        self._patch(monkeypatch, container, llm=False)
+        report = await eval_cli.run(self._args(questions_file, mode="all"))
+        assert list(report["modes"]) == [DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE]
+        assert "no BM25 index" in report["skipped_modes"][BM25_HYBRID_RETRIEVAL_MODE]
 
     async def test_an_explicit_bm25_hybrid_fails_without_the_index(
         self, monkeypatch: pytest.MonkeyPatch, questions_file: Path

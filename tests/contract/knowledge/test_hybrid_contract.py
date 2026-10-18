@@ -21,7 +21,7 @@ import pytest
 from psycopg import errors as pg_errors
 from sqlalchemy import event, text
 from sqlalchemy.engine import URL
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from agintis.modules.knowledge.domain import (
@@ -43,7 +43,7 @@ from agintis.shared_kernel.ids import ChunkId, DocumentId, TenantId
 from tests.conftest import skip_or_fail
 from tests.contract.knowledge.conftest import Repos
 from tests.fakes.knowledge import InMemoryChunkRepository, InMemoryDocumentRepository
-from tests.support.postgres import truncate_all
+from tests.support.postgres import BM25_INDEXES_SQL, truncate_all
 
 A = TenantId("tenant-a")
 B = TenantId("tenant-b")
@@ -414,13 +414,7 @@ class TestBm25IndexPath:
 async def _bm25_indexes(engine: AsyncEngine) -> dict[str, str]:
     """{name: predicate} of the bm25 indexes on chunks."""
     async with engine.connect() as conn:
-        rows = await conn.execute(
-            text(
-                "SELECT c.relname, pg_get_expr(i.indpred, i.indrelid) FROM pg_index i "
-                "JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_am am ON am.oid = c.relam "
-                "WHERE i.indrelid = 'chunks'::regclass AND am.amname = 'bm25'"
-            )
-        )
+        rows = await conn.execute(text(BM25_INDEXES_SQL))
         return {str(name): str(predicate) for name, predicate in rows}
 
 
@@ -485,13 +479,38 @@ class TestBm25TenantIndexes:
         self, pg_bm25: tuple[Repos, AsyncEngine]
     ) -> None:
         repos, engine = pg_bm25
-        tenant = TenantId(f"t-{uuid4().hex}")
+        tenant = TenantId(f"o'b-{uuid4().hex}")
         await repos.documents.save(_doc(tenant, f"{tenant}-d"))
         await repos.chunks.add_many([_chunk(tenant, f"{tenant}-d", "c1", EXACT_TEXT)], [NEAR])
         async with engine.begin() as conn:  # e.g. ingested before pg_textsearch was loaded
             await conn.execute(text(f'DROP INDEX "{bm25_index_name(tenant)}"'))
-        with pytest.raises(TextSearchConfigError, match=r"no BM25 index.*alembic downgrade 0005"):
+        with pytest.raises(TextSearchConfigError, match="no BM25 index") as info:
             await repos.chunks.search_bm25(tenant, QUERY, None, 10)
+        assert "downgrade" not in str(info.value)  # never an outage as the remedy
+        # The statement in the message is the fix, as written.
+        (statement,) = re.findall(r"`(CREATE INDEX[^`]+)`", str(info.value))
+        async with engine.begin() as conn:
+            await conn.exec_driver_sql(statement.replace("%", "%%"))
+        assert len(await repos.chunks.search_bm25(tenant, QUERY, None, 10)) == 1
+
+    async def test_the_index_build_waits_for_the_lock_on_chunks_only_so_long(
+        self, pg_bm25: tuple[Repos, AsyncEngine]
+    ) -> None:
+        """A writer holding chunks must fail the first ingest, not queue every later writer."""
+        repos, engine = pg_bm25
+        quick = PgChunkRepository(
+            create_session_factory(engine), bm25_indexes=True, bm25_lock_timeout_seconds=0.2
+        )
+        tenant = TenantId(f"t-{uuid4().hex}")
+        await repos.documents.save(_doc(tenant, f"{tenant}-d"))
+        async with engine.connect() as holder:
+            await holder.execute(text("LOCK chunks IN ROW EXCLUSIVE MODE"))
+            with pytest.raises(OperationalError, match="lock timeout"):
+                await asyncio.wait_for(
+                    quick.add_many([_chunk(tenant, f"{tenant}-d", "c1", EXACT_TEXT)], [NEAR]), 10
+                )
+            await holder.rollback()
+        assert bm25_index_name(tenant) not in await _bm25_indexes(engine)
 
     async def test_a_search_racing_the_first_ingest_retries_once(
         self, pg_bm25: tuple[Repos, AsyncEngine], monkeypatch: pytest.MonkeyPatch
@@ -545,8 +564,11 @@ class TestBm25TenantIndexes:
             tenant = TenantId(f"t-{uuid4().hex}")
             await repos.documents.save(_doc(tenant, f"{tenant}-d"))
             with caplog.at_level(logging.WARNING):
-                await chunks.add_many([_chunk(tenant, f"{tenant}-d", "c1", EXACT_TEXT)], [NEAR])
-            assert f"role {WRITER_ROLE} does not own chunks" in caplog.text
+                for n in (1, 2):  # two documents' worth of chunks, one warning
+                    await chunks.add_many(
+                        [_chunk(tenant, f"{tenant}-d", f"c{n}", EXACT_TEXT)], [NEAR]
+                    )
+            assert caplog.text.count(f"role {WRITER_ROLE} does not own chunks") == 1
             assert bm25_index_name(tenant) not in await _bm25_indexes(engine)
         finally:
             await writer.dispose()

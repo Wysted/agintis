@@ -71,6 +71,7 @@ from agintis.modules.knowledge.infrastructure.postgres import (
     IndexStatus,
     IndexSyncError,
     MetadataIndexSync,
+    TextSearchConfigError,
 )
 from agintis.modules.knowledge.profiles import (
     DEFAULT_PROFILE,
@@ -145,6 +146,7 @@ __all__ = [
     "ScoredChunk",
     "SourceFile",
     "TenantMismatchError",
+    "TextSearchConfigError",
     "TransformSpec",
     "UnknownStrategyError",
     "UnparseableDocumentError",

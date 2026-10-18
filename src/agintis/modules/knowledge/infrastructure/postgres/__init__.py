@@ -20,7 +20,7 @@ from agintis.modules.knowledge.infrastructure.postgres.indexes import (
 from agintis.modules.knowledge.infrastructure.postgres.ingest_lock import PgIngestLock
 from agintis.modules.knowledge.infrastructure.postgres.text_search import (
     TextSearchConfigError,
-    verify_bm25_index,
+    verify_pg_textsearch,
     verify_text_search_config,
 )
 
@@ -42,6 +42,6 @@ __all__ = [
     "expected_metadata_indexes",
     "metadata_index_name",
     "metadata_index_problems",
-    "verify_bm25_index",
+    "verify_pg_textsearch",
     "verify_text_search_config",
 ]

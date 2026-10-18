@@ -3,7 +3,7 @@
 `tsv` is a generated column, so its text search configuration is fixed by the migration. A query
 parsed with another configuration (other stemmer, other stop words, no `unaccent`) silently
 matches little or nothing, with no error anywhere: this check turns that into a startup failure.
-`verify_bm25_index` does the same for pg_textsearch, which `retrieval_mode: bm25_hybrid` needs.
+`verify_pg_textsearch` does the same for pg_textsearch, which `retrieval_mode: bm25_hybrid` needs.
 """
 
 import re
@@ -67,7 +67,7 @@ async def verify_text_search_config(engine: AsyncEngine, config: str) -> None:
             )
 
 
-async def verify_bm25_index(engine: AsyncEngine) -> None:
+async def verify_pg_textsearch(engine: AsyncEngine) -> None:
     """Raise `TextSearchConfigError` unless pg_textsearch is installed and loaded.
 
     The per-tenant BM25 indexes are not checked here: ingest creates a tenant's index, and a

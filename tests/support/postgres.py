@@ -39,6 +39,13 @@ MIGRATIONS_DATABASE_NAME = "agintis_test_migrations"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONNECT_TIMEOUT_SECONDS = 3
 
+# (name, predicate) of every bm25 (pg_textsearch) index on chunks.
+BM25_INDEXES_SQL = (
+    "SELECT c.relname, pg_get_expr(i.indpred, i.indrelid) FROM pg_index i "
+    "JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_am am ON am.oid = c.relam "
+    "WHERE i.indrelid = 'chunks'::regclass AND am.amname = 'bm25'"
+)
+
 _DISPOSABLE_NAME = re.compile(r"[A-Za-z0-9]+(_[A-Za-z0-9]+)*(_test|_test_[A-Za-z0-9_]+)")
 
 

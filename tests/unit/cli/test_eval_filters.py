@@ -109,6 +109,7 @@ async def _container(chat_models: ChatModels) -> Container:
         retrieve_for_topic=retrieve,
         probe_profiles=ProbeProfiles(chunks, embeddings),
         chat_models=chat_models,
+        chunks=chunks,
     )
     return cast(Container, stub)
 

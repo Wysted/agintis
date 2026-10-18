@@ -119,6 +119,7 @@ from agintis.modules.knowledge.api import (
     DENSE_RETRIEVAL_MODE,
     HYBRID_RETRIEVAL_MODE,
     RagProfile,
+    TextSearchConfigError,
 )
 from agintis.platform.llm import ChatModels, ChatRole, LlmNotConfiguredError
 from agintis.shared_kernel.ids import TenantId
@@ -868,8 +869,10 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     async with Container.build(settings) as container:
         if BM25_HYBRID_RETRIEVAL_MODE in modes:
             try:
-                await container.require_bm25_index()
-            except StartupError as exc:
+                await container.require_pg_textsearch()
+                if args.mode == ALL:  # also a tenant ingested while no profile used bm25_hybrid
+                    await container.chunks.search_bm25(TenantId(args.tenant), "probe", None, 1)
+            except (StartupError, TextSearchConfigError) as exc:
                 if args.mode != ALL:
                     raise
                 print(f"skipping {BM25_HYBRID_RETRIEVAL_MODE}: {exc}")

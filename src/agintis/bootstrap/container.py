@@ -85,7 +85,7 @@ from agintis.modules.knowledge.infrastructure.postgres import (
     TextSearchConfigError,
     expected_metadata_indexes,
     metadata_index_problems,
-    verify_bm25_index,
+    verify_pg_textsearch,
     verify_text_search_config,
 )
 from agintis.modules.knowledge.infrastructure.registry import (
@@ -456,7 +456,7 @@ class Container:
             raise StartupError(str(exc)) from exc
         # Optional extension: checked only when a profile needs it.
         if any(p.retrieval_mode == BM25_HYBRID_RETRIEVAL_MODE for p in self.profiles.all()):
-            await self.require_bm25_index()
+            await self.require_pg_textsearch()
         await self._warn_metadata_index_problems()
         if self.checkpointer is not None:
             try:
@@ -470,10 +470,10 @@ class Container:
         except LlmError as exc:
             raise StartupError(str(exc)) from exc
 
-    async def require_bm25_index(self) -> None:
+    async def require_pg_textsearch(self) -> None:
         """StartupError unless pg_textsearch is installed and loaded (`bm25_hybrid` needs it)."""
         try:
-            await verify_bm25_index(self.engine)
+            await verify_pg_textsearch(self.engine)
         except TextSearchConfigError as exc:
             raise StartupError(str(exc)) from exc
 

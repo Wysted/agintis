@@ -22,12 +22,13 @@ from sqlalchemy.exc import ProgrammingError
 from agintis.bootstrap.container import SCHEMA_HEAD_REVISION
 from agintis.modules.knowledge.infrastructure.postgres import (
     TextSearchConfigError,
-    verify_bm25_index,
+    verify_pg_textsearch,
 )
 from agintis.modules.knowledge.infrastructure.postgres.tables import bm25_index_name
 from agintis.platform.db import DatabaseCheckError, check_database, create_engine
 from tests.conftest import skip_or_fail
 from tests.support.postgres import (
+    BM25_INDEXES_SQL,
     admin_database_url,
     alembic_config,
     drop_database,
@@ -100,13 +101,7 @@ def test_upgrade_downgrade_round_trip_leaves_no_schema_behind(empty_database: UR
 
 
 def _bm25_indexes(url: URL) -> set[str]:
-    rows = _query(
-        url,
-        "SELECT c.relname FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
-        "JOIN pg_am am ON am.oid = c.relam "
-        "WHERE i.indrelid = 'chunks'::regclass AND am.amname = 'bm25'",
-    )
-    return {str(row[0]) for row in rows}
+    return {str(row[0]) for row in _query(url, BM25_INDEXES_SQL)}
 
 
 def _pg_textsearch_available(url: URL) -> bool:
@@ -158,9 +153,9 @@ async def test_the_migrations_create_what_the_bm25_boot_check_needs(empty_databa
     run_alembic(command.upgrade, config, "0004")
     async with postgres_engines(empty_database) as (engine, _):
         with pytest.raises(TextSearchConfigError, match="pg_textsearch"):
-            await verify_bm25_index(engine)
+            await verify_pg_textsearch(engine)
         run_alembic(command.upgrade, config, "head")
-        await verify_bm25_index(engine)  # the per-tenant indexes come from ingest
+        await verify_pg_textsearch(engine)  # the per-tenant indexes come from ingest
 
 
 def test_upgrade_waits_for_a_concurrent_migrator(empty_database: URL) -> None:

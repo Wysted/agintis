@@ -10,9 +10,17 @@ BM25 statistics (IDF, average length) are per index: the global `ix_chunks_text_
 SQL) for every tenant already in chunks, with `WHERE tenant_id = '<tenant>'`. Later tenants get
 theirs at their first ingest (`PgChunkRepository.add_many`). Like 0005, a NO-OP (logged as a
 WARNING) where the extension is not available, where the server does not preload its library and
-where the migration role cannot create it. To add the indexes later, as a privileged role on a
-server that preloads the library, create the extension and rerun this revision
-(`alembic downgrade 0005 && alembic upgrade head`).
+where the migration role cannot create it. To add an index later, as the owner of chunks on a
+server that preloads the library (after `CREATE EXTENSION IF NOT EXISTS pg_textsearch` as a
+privileged role):
+
+    CREATE INDEX IF NOT EXISTS ix_chunks_bm25_<hash> ON chunks USING bm25 (text)
+        WITH (text_config = 'public.es_unaccent') WHERE tenant_id = '<tenant>';
+
+A BM25 search of a tenant without its index fails with that statement, name filled in.
+Re-ingesting a changed document while a profile uses bm25_hybrid also creates it. Never
+downgrade to 0005 and upgrade again on a live database instead: the downgrade drops the indexes
+and rebuilds the global one in one transaction, holding ACCESS EXCLUSIVE on chunks throughout.
 """
 
 import logging
@@ -55,6 +63,9 @@ BEGIN
             RETURN;
         END;
     END IF;
+    -- shortcut: N full scans under one SHARE lock, writes blocked for the whole migration;
+    -- build per tenant outside the migration (CONCURRENTLY) when chunks is large or tenants
+    -- are many.
     -- An array, not a query loop: an open cursor on chunks blocks CREATE INDEX on it.
     FOREACH tenant IN ARRAY ARRAY(SELECT DISTINCT tenant_id FROM chunks) LOOP
         EXECUTE format(

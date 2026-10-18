@@ -406,7 +406,7 @@ async def test_the_bm25_index_is_checked_only_when_a_profile_uses_bm25_hybrid(
         raise TextSearchConfigError("needs the pg_textsearch extension")
 
     monkeypatch.setattr("agintis.bootstrap.container.check_database", database_ok)
-    monkeypatch.setattr("agintis.bootstrap.container.verify_bm25_index", missing)
+    monkeypatch.setattr("agintis.bootstrap.container.verify_pg_textsearch", missing)
     settings = make_settings(
         startup_checks=True,
         embeddings={"tokenizer": str(_tokenizer_file(tmp_path)), "url": "http://127.0.0.1:9"},
