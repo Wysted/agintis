@@ -67,4 +67,4 @@ metadata_fields:
   - {name: cited_laws,   type: 'list[str]', source: 'extractor:legal_refs', filterable: true}
 default_filter: null
 reranker_key: none
-# bm25_hybrid is available opt-in; measured but not adopted, see README.
+retrieval_mode: bm25_hybrid  # MRR@10 vs dense, see README

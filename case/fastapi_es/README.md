@@ -57,7 +57,7 @@ near-domain traps checked against the corpus with `rg`; written apart from the h
 above `low`: the Dockerfile and rate limiting questions (the corpus has no page for them). `in`
 below `low`: in-fa-08, in-fa-21, in-fa-24.
 
-Held-out retrieval (`cli.eval`, LLM-free; dense == hybrid, see finding a). Report only, never used
+Held-out retrieval (`cli.eval`, LLM-free; dense == hybrid, see finding a; measured before the switch to `bm25_hybrid`). Report only, never used
 to tune anything:
 
 | hit@1 | hit@3 | hit@5 | hit@10 | MRR@10 |
@@ -112,7 +112,8 @@ in your own terminal (no TTY, no prompt).
   dev sets (`calibration/retrieval_dev.jsonl` here and in spensiones) and REJECTED it by the
   pre-registered rule: every config lost MRR@10 against dense and the old hybrid on both sets
   (fastapi .689-.722 vs .792; spensiones .650-.706 vs .794) and 4-6 items of hit@1. Without IDF the
-  lexical leg adds noise to a strong bge-m3 ranking. Unmerged branch `part-4.2b` (109025e).
+  lexical leg adds noise to a strong bge-m3 ranking. Unmerged branch `part-4.2b` (109025e). Resolved by
+  `bm25_hybrid` (true BM25 IDF, per-tenant index, weighted RRF), which the profiles now use: see the root README.
 - b. FIXED in 4.2c (judge v10) and 4.2d (v11): `split_sentences` split fenced code blocks per line, so
   markers stuck to fragments ("``` [1]"). v10 keeps the block whole; v11 ignores markers in code (fenced and
   inline), see Results. Accepted: `evidence_not_verbatim` on sources with inline HTML (in-fa-06, in-fa-15;

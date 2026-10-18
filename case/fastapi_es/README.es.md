@@ -59,7 +59,7 @@ trampas de dominio cercano verificadas contra el corpus con `rg`; escritos apart
 por encima de `low`: las preguntas sobre Dockerfile y rate limiting (el corpus no tiene página para ellas). `in`
 por debajo de `low`: in-fa-08, in-fa-21, in-fa-24.
 
-Recuperación en el conjunto reservado (`cli.eval`, sin LLM; denso == híbrido, ver hallazgo a). Solo se reporta, nunca se usa
+Recuperación en el conjunto reservado (`cli.eval`, sin LLM; denso == híbrido, ver hallazgo a; medido antes del cambio a `bm25_hybrid`). Solo se reporta, nunca se usa
 para ajustar nada:
 
 | hit@1 | hit@3 | hit@5 | hit@10 | MRR@10 |
@@ -114,7 +114,8 @@ en tu propia terminal (sin TTY, no hay prompt).
   desarrollo de recuperación (`calibration/retrieval_dev.jsonl` aquí y en spensiones) y lo RECHAZÓ según la
   regla preregistrada: toda configuración perdió MRR@10 frente al denso y al híbrido anterior en ambos conjuntos
   (fastapi .689-.722 vs .792; spensiones .650-.706 vs .794) y 4-6 ítems de hit@1. Sin IDF, la
-  rama léxica agrega ruido a un ranking sólido de bge-m3. Rama sin fusionar `part-4.2b` (109025e).
+  rama léxica agrega ruido a un ranking sólido de bge-m3. Rama sin fusionar `part-4.2b` (109025e). Lo resuelve
+  `bm25_hybrid` (IDF de BM25 real, índice por tenant, RRF ponderado), que los perfiles usan ahora: ver el README raíz.
 - b. CORREGIDO en 4.2c (juez v10) y 4.2d (v11): `split_sentences` dividía los bloques de código delimitados por línea, de modo que
   los marcadores quedaban pegados a fragmentos ("``` [1]"). v10 mantiene el bloque completo; v11 ignora los marcadores en código (delimitado y
   en línea), ver Resultados. Aceptado: `evidence_not_verbatim` en fuentes con HTML en línea (in-fa-06, in-fa-15;

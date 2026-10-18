@@ -125,11 +125,11 @@ más los otros extras que uses (`--all-extras` lo incluye); Docker:
    el log). Cada tenant tiene su propio índice BM25, así que las estadísticas de términos (IDF) nunca
    mezclan tenants; la ingesta lo crea para un tenant nuevo cuando un perfil usa `bm25_hybrid`, lo que
    requiere que el rol de base de datos de la app sea dueño de `chunks` (si no, la ingesta registra un
-   warning). Los casos incluidos no lo usan: medido como MRR@10 frente a dense con un único índice
-   compartido por todos los tenants, un set de desarrollo nuevo de spensiones mejoró
-   (.7304 -> .7708) pero el anterior cayó más allá del límite de -0.01 (.7937 -> .7780;
-   fastapi_es .7917 -> .7900); una corrida offline con índices por tenant se había mantenido
-   dentro de él (.7879; fastapi_es .7861).
+   warning). Los dos casos incluidos lo usan en todos sus perfiles. Medido como MRR@10 frente a dense
+   con índices por tenant, un set de desarrollo nuevo de spensiones mejoró (.7304 -> .7694) y los sets
+   anteriores se mantuvieron dentro del límite de -0.01 (spensiones .7937 -> .7879, fastapi_es
+   .7917 -> .7861). Con un único índice compartido por todos los tenants, el set anterior de
+   spensiones había caído más allá de él (.7780).
 2. Corpus: `index/documents.jsonl` (una fila por documento, títulos desde `document_metadata.title`
    o el H1 del parser) y los archivos bajo `samples/` con `samples/_manifest.json`. Escribe un
    script en `fetch/` que produzca ambos. Tras una nueva descarga que cambió o eliminó fuentes, ingesta
