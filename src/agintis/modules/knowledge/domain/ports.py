@@ -200,6 +200,23 @@ class ChunkRepository(ABC):
         (web-search syntax); a query without searchable terms returns an empty list.
         """
 
+    @abstractmethod
+    async def search_bm25(
+        self,
+        tenant_id: TenantId,
+        query_text: str,
+        filter: FilterExpr | None,
+        k: int,
+        *,
+        metadata_fields: Sequence[MetadataField] = (),
+    ) -> list[ScoredChunk]:
+        """Return up to `k` chunks ranked by BM25 against `query_text`, best first.
+
+        Same contract as `search_lexical` for tenant scoping, READY-only serving, filters and
+        blank queries; terms are combined with OR (BM25 ranks chunks matching ANY term) and the
+        score is the BM25 relevance (higher is better, comparable only within one result list).
+        """
+
     async def search_hybrid(
         self,
         tenant_id: TenantId,

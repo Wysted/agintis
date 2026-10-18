@@ -15,7 +15,7 @@ with retrieval metrics and an answer judge.
 
 | Module | What it owns |
 |---|---|
-| `modules/knowledge` | Ingestion (parse, clean, chunk, embed), Postgres + pgvector storage, dense/hybrid search, rerank, YAML retrieval profiles |
+| `modules/knowledge` | Ingestion (parse, clean, chunk, embed), Postgres + pgvector storage, dense/hybrid/BM25 search, rerank, YAML retrieval profiles |
 | `modules/conversations` | Tenant-scoped threads, leases, LangGraph checkpointer state |
 | `modules/agents_catalog` | Agent registry and the HTTP/SSE run API |
 | `modules/agents` | Concrete agents: `rag_chat` (built from YAML specs) and `direct_chat` |
@@ -29,7 +29,7 @@ Needs Docker, [uv](https://docs.astral.sh/uv/) (only for the corpus fetch) and a
 
 ```bash
 cp .env.example .env        # fill POSTGRES_* and LLM_* (LLM_PROVIDER, LLM_MODEL, LLM_API_KEY)
-docker compose up -d db embeddings          # first start downloads the embedding model
+docker compose up -d db embeddings          # first start builds the DB image, downloads the model
 
 # 1. Fetch the corpus of a case (fastapi_es: FastAPI docs in Spanish, pinned commit)
 uv run --no-project --python 3.12 python -I case/fastapi_es/fetch/fetch.py
@@ -116,7 +116,12 @@ plus the other extras you use (`--all-extras` includes it); Docker:
 `docker compose --profile app build --build-arg UV_EXTRAS="openai otel ocr"`.
 
 1. `profiles/*.yaml`: one retrieval profile per document family (parser, cleaners, chunker,
-   embedding/search settings) plus routing rules. No registry to edit.
+   embedding/search settings) plus routing rules. No registry to edit. `retrieval_mode`: `dense`
+   (default), `hybrid` (dense + Postgres full-text, any Postgres) or `bm25_hybrid` (dense + BM25
+   from the pg_textsearch extension, weighted RRF). `bm25_hybrid` needs the project's Postgres
+   image (`docker/postgres`, used by compose and CI); managed Postgres such as RDS or Cloud SQL
+   lacks the extension, so the app refuses to boot with such a profile there: use `hybrid`.
+   Both shipped cases use `bm25_hybrid`.
 2. Corpus: `index/documents.jsonl` (one row per document, titles from `document_metadata.title`
    or the parser's H1) and the files under `samples/` with `samples/_manifest.json`. Write a
    `fetch/` script that produces both. After a re-fetch that changed or dropped sources, ingest

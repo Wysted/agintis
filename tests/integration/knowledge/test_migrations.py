@@ -1,4 +1,5 @@
-"""Alembic: up/down round trip, no model drift, unprivileged roles, and the startup schema check.
+"""Alembic: up/down round trip, no model drift, unprivileged roles, the optional BM25 index and the
+startup schema checks.
 
 Uses its own disposable database (`agintis_test_migrations`), never the shared test databases.
 """
@@ -18,6 +19,10 @@ from sqlalchemy.engine import URL
 from sqlalchemy.exc import ProgrammingError
 
 from agintis.bootstrap.container import SCHEMA_HEAD_REVISION
+from agintis.modules.knowledge.infrastructure.postgres import (
+    TextSearchConfigError,
+    verify_bm25_index,
+)
 from agintis.platform.db import DatabaseCheckError, check_database, create_engine
 from tests.conftest import skip_or_fail
 from tests.support.postgres import (
@@ -25,6 +30,7 @@ from tests.support.postgres import (
     alembic_config,
     drop_database,
     libpq_dsn,
+    postgres_engines,
     run_alembic,
 )
 
@@ -91,6 +97,40 @@ def test_upgrade_downgrade_round_trip_leaves_no_schema_behind(empty_database: UR
     assert {"documents", "chunks"} <= _tables(empty_database)
 
 
+def _has_bm25_index(url: URL) -> bool:
+    return bool(_query(url, "SELECT 1 FROM pg_indexes WHERE indexname = 'ix_chunks_text_bm25'"))
+
+
+def _pg_textsearch_available(url: URL) -> bool:
+    return bool(_query(url, "SELECT 1 FROM pg_available_extensions WHERE name = 'pg_textsearch'"))
+
+
+def test_the_bm25_index_exists_only_where_pg_textsearch_is_available(
+    empty_database: URL,
+) -> None:
+    """Revision 0005 is a no-op on servers without the extension (managed Postgres)."""
+    config = alembic_config(empty_database, embedding_dim=DIM)
+    run_alembic(command.upgrade, config, "head")
+    assert _has_bm25_index(empty_database) == _pg_textsearch_available(empty_database)
+    run_alembic(command.downgrade, config, "0004")
+    assert not _has_bm25_index(empty_database)
+
+
+async def test_revision_0005_creates_what_the_bm25_boot_check_needs(empty_database: URL) -> None:
+    if not _pg_textsearch_available(empty_database):
+        skip_or_fail("pg_textsearch not available: use the docker/postgres image")
+    config = alembic_config(empty_database, embedding_dim=DIM)
+    run_alembic(command.upgrade, config, "0004")
+    async with postgres_engines(empty_database) as (engine, _):
+        with pytest.raises(TextSearchConfigError, match="pg_textsearch"):
+            await verify_bm25_index(engine)
+        run_alembic(command.upgrade, config, "head")
+        await verify_bm25_index(engine)
+        run_alembic(command.downgrade, config, "0004")  # the extension stays, the index goes
+        with pytest.raises(TextSearchConfigError, match="ix_chunks_text_bm25"):
+            await verify_bm25_index(engine)
+
+
 def test_upgrade_waits_for_a_concurrent_migrator(empty_database: URL) -> None:
     """The advisory lock serializes two `upgrade head` runs: the second waits, then is a no-op."""
     config = alembic_config(empty_database, embedding_dim=DIM)
@@ -134,6 +174,8 @@ class TestUnprivilegedMigrator:
             conn.execute("CREATE EXTENSION unaccent")
         run_alembic(command.upgrade, alembic_config(role_url, embedding_dim=DIM), "head")
         assert {"documents", "chunks"} <= _tables(role_url)
+        # pg_textsearch needs a superuser: the role skips it (NOTICE) instead of failing.
+        assert not _has_bm25_index(role_url)
 
     def test_missing_extension_fails_clearly_instead_of_with_a_privilege_error(
         self, admin: URL, role_url: URL

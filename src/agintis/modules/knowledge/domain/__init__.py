@@ -14,6 +14,7 @@ from agintis.modules.knowledge.domain.fusion import (
     reciprocal_rank_fusion,
 )
 from agintis.modules.knowledge.domain.models import (
+    BM25_HYBRID_RETRIEVAL_MODE,
     BUILTIN_METADATA_FIELDS,
     DENSE_RETRIEVAL_MODE,
     HYBRID_RETRIEVAL_MODE,
@@ -58,6 +59,7 @@ from agintis.modules.knowledge.domain.ports import (
 )
 
 __all__ = [
+    "BM25_HYBRID_RETRIEVAL_MODE",
     "BUILTIN_METADATA_FIELDS",
     "DEFAULT_BRANCH_DEPTH",
     "DEFAULT_RRF_K",

@@ -7,6 +7,7 @@ from agintis.modules.knowledge.application import (
     NO_RERANKER_KEY,
     BatchItem,
     BatchOutcome,
+    Bm25HybridRetrieval,
     ChunkDraft,
     Chunker,
     Cleaner,
@@ -45,6 +46,7 @@ from agintis.modules.knowledge.application import (
     ValueTransform,
 )
 from agintis.modules.knowledge.domain import (
+    BM25_HYBRID_RETRIEVAL_MODE,
     DENSE_RETRIEVAL_MODE,
     HYBRID_RETRIEVAL_MODE,
     Citation,
@@ -82,6 +84,7 @@ from agintis.modules.knowledge.profiles import (
 )
 
 __all__ = [
+    "BM25_HYBRID_RETRIEVAL_MODE",
     "DEFAULT_MAX_QUERY_CHARS",
     "DEFAULT_PROBE_K",
     "DEFAULT_PROFILE",
@@ -92,6 +95,7 @@ __all__ = [
     "ApplyResult",
     "BatchItem",
     "BatchOutcome",
+    "Bm25HybridRetrieval",
     "ChunkDraft",
     "Chunker",
     "Citation",

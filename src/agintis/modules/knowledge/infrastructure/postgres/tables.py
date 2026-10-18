@@ -32,6 +32,9 @@ TEXT_SEARCH_CONFIG = "public.es_unaccent"
 READY_SOURCE_INDEX = "uq_documents_ready_source"
 DOCUMENT_FK = "fk_chunks_document_tenant"
 METADATA_INDEX_PREFIX = "ix_chunks_meta_"
+# BM25 index (pg_textsearch) on chunks.text, named by `to_bm25query`. Migration 0005 creates it
+# only where the extension is available, so it is not declared on the table below.
+BM25_INDEX = "ix_chunks_text_bm25"
 
 _STATUSES = ", ".join(f"'{status.value}'" for status in DocumentStatus)
 

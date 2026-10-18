@@ -66,7 +66,11 @@ from agintis.modules.knowledge.api import (
     load_profiles_dir,
     validate_profiles,
 )
-from agintis.modules.knowledge.domain import ChunkRepository, DocumentRepository
+from agintis.modules.knowledge.domain import (
+    BM25_HYBRID_RETRIEVAL_MODE,
+    ChunkRepository,
+    DocumentRepository,
+)
 from agintis.modules.knowledge.infrastructure.chunkers import HfTokenCounter
 from agintis.modules.knowledge.infrastructure.errors import RetrievalErrorClassifier
 from agintis.modules.knowledge.infrastructure.parsers import (
@@ -81,6 +85,7 @@ from agintis.modules.knowledge.infrastructure.postgres import (
     TextSearchConfigError,
     expected_metadata_indexes,
     metadata_index_problems,
+    verify_bm25_index,
     verify_text_search_config,
 )
 from agintis.modules.knowledge.infrastructure.registry import (
@@ -120,7 +125,7 @@ MIN_VECTOR_VERSION = (0, 8, 4)
 
 # Alembic head this build was written for. Bump together with every new migration (a unit test
 # compares it with the script directory); the startup check refuses any other schema revision.
-SCHEMA_HEAD_REVISION = "0004"
+SCHEMA_HEAD_REVISION = "0005"
 
 logger = logging.getLogger(__name__)
 
@@ -444,6 +449,9 @@ class Container:
         logger.info("Database reachable, pgvector %s, schema %s", version, SCHEMA_HEAD_REVISION)
         try:
             await verify_text_search_config(self.engine, self.settings.knowledge.text_search_config)
+            # Optional extension: checked only when a profile needs it.
+            if any(p.retrieval_mode == BM25_HYBRID_RETRIEVAL_MODE for p in self.profiles.all()):
+                await verify_bm25_index(self.engine)
         except TextSearchConfigError as exc:
             raise StartupError(str(exc)) from exc
         await self._warn_metadata_index_problems()

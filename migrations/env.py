@@ -15,12 +15,15 @@ import agintis.modules.conversations.infrastructure.postgres.tables
 import agintis.modules.knowledge.infrastructure.postgres.tables  # noqa: F401
 from agintis.bootstrap.settings import EmbeddingsSettings, get_settings
 from agintis.modules.conversations.infrastructure.postgres.tables import THREADS_ORDER_INDEX
-from agintis.modules.knowledge.infrastructure.postgres.tables import METADATA_INDEX_PREFIX
+from agintis.modules.knowledge.infrastructure.postgres.tables import (
+    BM25_INDEX,
+    METADATA_INDEX_PREFIX,
+)
 from agintis.platform.db import EXTERNAL_TABLES, metadata
 
 # Indexes with a COLLATE / expression part: reflection loses it, so the drift check would always
-# report them.
-UNCOMPARABLE_INDEXES = frozenset({THREADS_ORDER_INDEX})
+# report them. The BM25 index exists only where pg_textsearch is available (revision 0005).
+UNCOMPARABLE_INDEXES = frozenset({THREADS_ORDER_INDEX, BM25_INDEX})
 
 # Serializes concurrent `alembic upgrade head` runs (two hosts): held until the migration
 # transaction ends. Distinct from the checkpointer SETUP_LOCK_KEY (different hash input).

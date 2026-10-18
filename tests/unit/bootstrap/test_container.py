@@ -18,7 +18,11 @@ from agintis.modules.knowledge.api import (
     InvalidProfileError,
     UnknownStrategyError,
 )
-from agintis.modules.knowledge.domain import MetadataField, RagProfile
+from agintis.modules.knowledge.domain import (
+    BM25_HYBRID_RETRIEVAL_MODE,
+    MetadataField,
+    RagProfile,
+)
 from agintis.modules.knowledge.infrastructure.parsers import OcrNotInstalledError
 from agintis.modules.knowledge.infrastructure.postgres import (
     PgChunkRepository,
@@ -373,6 +377,38 @@ async def test_a_text_search_config_that_does_not_match_tsv_stops_the_boot(
     with pytest.raises(StartupError, match="simple differs from tsv"):
         async with Container.build(settings):
             pass
+
+
+async def test_the_bm25_index_is_checked_only_when_a_profile_uses_bm25_hybrid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def database_ok(engine: object, **kwargs: Any) -> str:
+        return "0.8.7"
+
+    checked: list[object] = []
+
+    async def missing(engine: object) -> None:
+        checked.append(engine)
+        raise TextSearchConfigError("needs the BM25 index ix_chunks_text_bm25")
+
+    monkeypatch.setattr("agintis.bootstrap.container.check_database", database_ok)
+    monkeypatch.setattr("agintis.bootstrap.container.verify_bm25_index", missing)
+    settings = make_settings(
+        startup_checks=True,
+        embeddings={"tokenizer": str(_tokenizer_file(tmp_path)), "url": "http://127.0.0.1:9"},
+    )
+    async with Container.build(settings):
+        pass
+    assert checked == []  # no bm25_hybrid profile: the optional extension is never required
+
+    container = Container.build(settings)
+    container.profiles.register(
+        RagProfile("bm", 3, 100, "simple", "structured", retrieval_mode=BM25_HYBRID_RETRIEVAL_MODE)
+    )
+    with pytest.raises(StartupError, match="BM25 index"):
+        async with container:
+            pass
+    assert checked == [container.engine]
 
 
 def test_build_fails_fast_on_incompatible_indexed_declarations(tmp_path: Path) -> None:

@@ -1,6 +1,7 @@
 """Retrieval strategies: how a profile turns a query into the candidate chunks (`retrieval_mode`).
 
-`dense` is vector search only; `hybrid` fuses it with full-text search (RRF). Both only produce
+`dense` is vector search only; `hybrid` fuses it with full-text search (RRF) and `bm25_hybrid`
+with a BM25 search (weighted RRF, needs the pg_textsearch extension). All only produce
 CANDIDATES: READY re-checking, reranking and trimming stay in `RetrieveForTopic`. A strategy
 never builds filters or tenant scope itself; it receives the final `filter` and passes it
 unchanged to every branch.
@@ -11,26 +12,36 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from agintis.modules.knowledge.domain import (
+    BM25_HYBRID_RETRIEVAL_MODE,
     DEFAULT_BRANCH_DEPTH,
     DEFAULT_RRF_K,
     DENSE_RETRIEVAL_MODE,
     HYBRID_RETRIEVAL_MODE,
     ChunkRepository,
+    FusedChunk,
     MetadataField,
     ScoredChunk,
+    reciprocal_rank_fusion,
 )
 from agintis.shared_kernel.criteria import FilterExpr
 from agintis.shared_kernel.ids import TenantId
 
 __all__ = [
+    "BM25_HYBRID_RETRIEVAL_MODE",
+    "BM25_LEXICAL_WEIGHT",
     "DENSE_RETRIEVAL_MODE",
     "HYBRID_RETRIEVAL_MODE",
+    "Bm25HybridRetrieval",
     "Candidate",
     "CandidateRequest",
     "DenseRetrieval",
     "HybridRetrieval",
     "RetrievalStrategy",
 ]
+
+# RRF weight of the BM25 branch (dense = 1.0). Measured on pre-registered dev sets: 0.5 gained
+# MRR@10 on fresh questions while staying within -0.01 of dense on the older sets; 1.0 did not.
+BM25_LEXICAL_WEIGHT = 0.5
 
 
 @dataclass(frozen=True)
@@ -108,13 +119,49 @@ class HybridRetrieval(RetrievalStrategy):
             branch_depth=self._branch_depth,
             rrf_k=self._rrf_k,
         )
-        return [
-            Candidate(
-                ScoredChunk(f.chunk, f.fused_score),
-                similarity=f.dense_similarity,
-                dense_rank=f.dense_rank,
-                lexical_rank=f.lexical_rank,
-                fused_score=f.fused_score,
-            )
-            for f in fused
-        ]
+        return _fused_candidates(fused)
+
+
+class Bm25HybridRetrieval(HybridRetrieval):
+    """Dense + BM25 branches fused with weighted RRF (`BM25_LEXICAL_WEIGHT`).
+
+    Same depth and `rrf_k` as `HybridRetrieval`; only the lexical branch and its weight differ.
+    """
+
+    async def candidates(
+        self, chunks: ChunkRepository, request: CandidateRequest
+    ) -> list[Candidate]:
+        if request.k <= 0:
+            raise ValueError("k must be greater than 0")
+        depth = max(self._branch_depth, request.k)
+        dense = await chunks.search(
+            request.tenant_id,
+            request.vector,
+            request.filter,
+            depth,
+            metadata_fields=request.metadata_fields,
+        )
+        lexical = await chunks.search_bm25(
+            request.tenant_id,
+            request.query,
+            request.filter,
+            depth,
+            metadata_fields=request.metadata_fields,
+        )
+        fused = reciprocal_rank_fusion(
+            dense, lexical, k=self._rrf_k, limit=request.k, lexical_weight=BM25_LEXICAL_WEIGHT
+        )
+        return _fused_candidates(fused)
+
+
+def _fused_candidates(fused: Sequence[FusedChunk]) -> list[Candidate]:
+    return [
+        Candidate(
+            ScoredChunk(f.chunk, f.fused_score),
+            similarity=f.dense_similarity,
+            dense_rank=f.dense_rank,
+            lexical_rank=f.lexical_rank,
+            fused_score=f.fused_score,
+        )
+        for f in fused
+    ]

@@ -44,7 +44,8 @@ x-case-mount: &case-mount
 
 services:
   db:
-    image: pgvector/pgvector:0.8.7-pg17
+    # pgvector + pg_textsearch (BM25), preloaded by the image's CMD. CI builds the same Dockerfile.
+    build: ./docker/postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}

@@ -61,6 +61,7 @@ from agintis.modules.knowledge.application.probe_profiles import (
 )
 from agintis.modules.knowledge.application.rerankers import NO_RERANKER_KEY, NoopReranker
 from agintis.modules.knowledge.application.retrieval_modes import (
+    Bm25HybridRetrieval,
     Candidate,
     CandidateRequest,
     DenseRetrieval,
@@ -81,6 +82,7 @@ __all__ = [
     "BatchItem",
     "BatchOutcome",
     "BatchStatus",
+    "Bm25HybridRetrieval",
     "Candidate",
     "CandidateRequest",
     "ChunkDraft",

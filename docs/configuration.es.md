@@ -20,7 +20,7 @@ estas variables se ignoran allí (son rutas/URL del host); usa las variantes `AP
 | `APP_ENV` | `local` | no | no | `local`, `test` o `prod`. El tenant por defecto (`HTTP_DEFAULT_TENANT`) se respeta solo con un `APP_ENV=local` EXPLÍCITO. |
 | `DATABASE_URL` | none | yes | yes | URL de SQLAlchemy, debe comenzar con `postgresql+psycopg://`. |
 | `LOG_LEVEL` | `INFO` | no | no | `DEBUG`, `INFO`, `WARNING`, `ERROR` o `CRITICAL`. |
-| `STARTUP_CHECKS` | `true` | no | no | `false` omite TODAS las verificaciones de arranque (pgvector, head de Alembic, configuración de búsqueda de texto, tablas del checkpointer, perfiles LLM, precalentamiento del tokenizer, modelo TEI servido). Solo para tests y herramientas; nunca en producción. |
+| `STARTUP_CHECKS` | `true` | no | no | `false` omite TODAS las verificaciones de arranque (pgvector, head de Alembic, configuración de búsqueda de texto, índice BM25 si un perfil usa `bm25_hybrid`, tablas del checkpointer, perfiles LLM, precalentamiento del tokenizer, modelo TEI servido). Solo para tests y herramientas; nunca en producción. |
 
 ## Base de datos (`DATABASE_*`)
 
@@ -81,7 +81,7 @@ estas variables se ignoran allí (son rutas/URL del host); usa las variantes `AP
 |---|---|---|---|---|
 | `KNOWLEDGE_PROFILES_DIR` | unset | no | no | Directorio con un perfil RAG YAML por archivo, cargado al arrancar (sin definir = solo el perfil por defecto integrado). |
 | `KNOWLEDGE_TEXT_SEARCH_CONFIG` | `public.es_unaccent` | no | no | Configuración de búsqueda de texto para la rama léxica de la búsqueda híbrida. Cámbiala solo si la migración usó otra. |
-| `KNOWLEDGE_HYBRID_BRANCH_DEPTH` | `50` | no | no | Candidatos tomados de CADA rama de la búsqueda híbrida (1..1000). |
+| `KNOWLEDGE_HYBRID_BRANCH_DEPTH` | `50` | no | no | Candidatos tomados de CADA rama de la búsqueda `hybrid` y `bm25_hybrid` (1..1000). |
 | `KNOWLEDGE_HYBRID_RRF_K` | `60` | no | no | Constante de la fusión por rango recíproco (RRF). |
 | `KNOWLEDGE_MAX_QUERY_CHARS` | `2000` | no | no | Consulta de recuperación más larga aceptada; las más largas se rechazan. |
 | `KNOWLEDGE_PROBE_CONCURRENCY` | `2` | no | no | Búsquedas de sondeo del router por evidencia en vuelo; como máximo `DATABASE_POOL_SIZE - 1` (mín. 1). |

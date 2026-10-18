@@ -5,7 +5,8 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: docker
-    directory: /
+    # The app image and the DB image (pgvector base of docker/postgres, both stages).
+    directories: ["/", "/docker/postgres"]
     schedule:
       interval: weekly
     ignore:

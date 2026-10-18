@@ -113,6 +113,7 @@ from agintis.cli.eval_metrics import (
 )
 from agintis.modules.agents.rag_chat import AgentSpec, TopicSpec, build_router, load_agent_specs
 from agintis.modules.knowledge.api import (
+    BM25_HYBRID_RETRIEVAL_MODE,
     DEFAULT_MAX_QUERY_CHARS,
     DENSE_RETRIEVAL_MODE,
     HYBRID_RETRIEVAL_MODE,
@@ -164,7 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=[DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE, BOTH],
+        choices=[DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE, BM25_HYBRID_RETRIEVAL_MODE, BOTH],
         default=BOTH,
         help="retrieval mode to measure (default: %(default)s)",
     )

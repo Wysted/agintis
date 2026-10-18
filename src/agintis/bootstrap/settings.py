@@ -139,7 +139,7 @@ class KnowledgeSettings(BaseSettings):
     # (KNOWLEDGE_TEXT_SEARCH_CONFIG). The `tsv` column itself is built by the migration with
     # `public.es_unaccent`: change this only for a deployment whose migration used another one.
     text_search_config: str = Field(default="public.es_unaccent", min_length=1)
-    # Hybrid retrieval: candidates taken from EACH branch, and the RRF constant.
+    # Hybrid and bm25_hybrid retrieval: candidates taken from EACH branch, and the RRF constant.
     hybrid_branch_depth: int = Field(default=50, ge=1, le=1000)
     hybrid_rrf_k: int = Field(default=60, ge=1)
     # Longest accepted retrieval query in characters (KNOWLEDGE_MAX_QUERY_CHARS); longer ones are

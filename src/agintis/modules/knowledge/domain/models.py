@@ -60,6 +60,8 @@ BASELINE_STRATEGY_VERSION = 1
 # Retrieval strategy keys of a RagProfile (`retrieval_mode`); more may be registered.
 DENSE_RETRIEVAL_MODE = "dense"
 HYBRID_RETRIEVAL_MODE = "hybrid"
+# Dense + BM25 (Postgres extension pg_textsearch); opt-in: managed Postgres lacks it.
+BM25_HYBRID_RETRIEVAL_MODE = "bm25_hybrid"
 
 _CHUNK_ID_NAMESPACE = UUID("6f1c1c1e-5a0b-4d0e-9a53-2f7a2d9b7c11")
 

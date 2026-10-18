@@ -10,6 +10,7 @@ duplicate configuration. Bootstrap reads the settings and passes every value exp
 
 from agintis.modules.knowledge.application import (
     NO_RERANKER_KEY,
+    Bm25HybridRetrieval,
     Chunker,
     Cleaner,
     DenseRetrieval,
@@ -21,7 +22,11 @@ from agintis.modules.knowledge.application import (
     RetrievalStrategy,
     ValueTransform,
 )
-from agintis.modules.knowledge.domain import DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE
+from agintis.modules.knowledge.domain import (
+    BM25_HYBRID_RETRIEVAL_MODE,
+    DENSE_RETRIEVAL_MODE,
+    HYBRID_RETRIEVAL_MODE,
+)
 from agintis.modules.knowledge.infrastructure.chunkers import (
     PATTERN_HIERARCHY_CHUNKER_KEY,
     RECORDS_CHUNKER_KEY,
@@ -58,10 +63,11 @@ TEI_RERANKER_KEY = "tei"
 
 
 def build_retrieval_modes(*, branch_depth: int, rrf_k: int) -> dict[str, RetrievalStrategy]:
-    """`retrieval_mode` keys of a profile: vector search only, or fused with full-text."""
+    """`retrieval_mode` keys of a profile: vector search only, or fused with full-text / BM25."""
     return {
         DENSE_RETRIEVAL_MODE: DenseRetrieval(),
         HYBRID_RETRIEVAL_MODE: HybridRetrieval(branch_depth=branch_depth, rrf_k=rrf_k),
+        BM25_HYBRID_RETRIEVAL_MODE: Bm25HybridRetrieval(branch_depth=branch_depth, rrf_k=rrf_k),
     }
 
 

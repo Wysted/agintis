@@ -6,7 +6,18 @@ from collections.abc import Sequence
 from typing import Any
 
 from psycopg import errors as pg_errors
-from sqlalchemy import RowMapping, TextClause, and_, cast, delete, func, insert, select, text
+from sqlalchemy import (
+    Float,
+    RowMapping,
+    TextClause,
+    and_,
+    cast,
+    delete,
+    func,
+    insert,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import REGCONFIG
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -23,6 +34,7 @@ from agintis.modules.knowledge.domain import (
 )
 from agintis.modules.knowledge.infrastructure.postgres.fields import chunk_fields
 from agintis.modules.knowledge.infrastructure.postgres.tables import (
+    BM25_INDEX,
     DOCUMENT_FK,
     TEXT_SEARCH_CONFIG,
     chunks,
@@ -75,7 +87,7 @@ def search_settings_statement() -> TextClause:
 
 
 def lexical_settings_statement() -> TextClause:
-    """Transaction-local statement timeout of the full-text branch."""
+    """Transaction-local statement timeout of the full-text and BM25 branches."""
     return text("SELECT set_config('statement_timeout', :statement_timeout, true)")
 
 
@@ -269,6 +281,56 @@ class PgChunkRepository(ChunkRepository):
         # Defense in depth, like the dense branch: best rank first, ties by id (code points).
         ordered = sorted(rows, key=lambda r: (-float(r["rank"]), str(r["id"])))
         return [ScoredChunk(_to_chunk(row), float(row["rank"])) for row in ordered]
+
+    async def search_bm25(
+        self,
+        tenant_id: TenantId,
+        query_text: str,
+        filter: FilterExpr | None,
+        k: int,
+        *,
+        metadata_fields: Sequence[MetadataField] = (),
+    ) -> list[ScoredChunk]:
+        """BM25 branch (pg_textsearch): `text <@> to_bm25query(q, index)`, best first.
+
+        `<@>` returns the NEGATED BM25 score (ascending = best first), which lets the bm25 index
+        serve the ORDER BY ... LIMIT (an incremental sort adds the id tiebreak); filters are
+        applied after scoring and the scan keeps going until LIMIT rows survive. Only chunks
+        matching some query term are kept (`< 0`: a non-matching row scores 0 when the planner
+        does not use the index). The index (revision 0005) fixes the text configuration;
+        tenant, filter, READY-only and the statement timeout as in `search_lexical`.
+        """
+        if k <= 0:
+            raise ValueError("k must be greater than 0")
+        ensure_fields(filter, chunk_filterable_fields(metadata_fields))
+        if not query_text.strip():
+            return []
+        where = compile_filter(tenant_scoped(tenant_id, filter), chunk_fields(metadata_fields))
+        distance = chunks.c.text.op("<@>", return_type=Float)(
+            func.to_bm25query(query_text, BM25_INDEX)
+        )
+        score = distance.label("score")
+        stmt = (
+            select(*_CHUNK_COLUMNS, score)
+            .join(
+                documents,
+                and_(
+                    documents.c.id == chunks.c.document_id,
+                    documents.c.tenant_id == chunks.c.tenant_id,
+                ),
+            )
+            .where(documents.c.status == DocumentStatus.READY.value, distance < 0, where)
+            .order_by(score, _ID_ORDER)
+            .limit(k)
+        )
+        async with UnitOfWork(self._factory) as uow:
+            await uow.session.execute(
+                lexical_settings_statement(), {"statement_timeout": self._search_timeout}
+            )
+            rows = (await uow.session.execute(stmt)).mappings().all()
+        # Defense in depth: best (most negative) first, ties by id (code points).
+        ordered = sorted(rows, key=lambda r: (float(r["score"]), str(r["id"])))
+        return [ScoredChunk(_to_chunk(row), -float(row["score"])) for row in ordered]
 
     async def delete_by_document(self, tenant_id: TenantId, document_id: DocumentId) -> None:
         stmt = delete(chunks).where(

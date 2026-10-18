@@ -122,7 +122,7 @@ metadata_fields:
   - {name: validity,       type: str,  source: 'const:consolidated_current', filterable: true}
 default_filter: null
 reranker_key: none
-# Hybrid: the compendio is a numbered legal text (Libro/Titulo/Letra/Capitulo/numero). Exact
-# terms ("afiliacion automatica", ncg numbers) are lost by dense embeddings. Measured on the
-# eval questions: hit@1 0.64 -> 0.73, MRR 0.70 -> 0.76, no question got worse.
-retrieval_mode: hybrid
+# bm25_hybrid = dense + BM25 (pg_textsearch), weighted RRF. Measured with BM25 fused into every
+# profile of both cases, MRR@10 vs dense: fresh spensiones dev2 set .7304 -> .7694; older dev
+# sets spensiones .7937 -> .7879, fastapi_es .7917 -> .7861. Needs the project's Postgres image.
+retrieval_mode: bm25_hybrid

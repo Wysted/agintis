@@ -21,7 +21,7 @@ these are ignored there (they are host paths/URLs); use the `APP_*` variants des
 | `APP_ENV` | `local` | no | no | `local`, `test` or `prod`. The default tenant (`HTTP_DEFAULT_TENANT`) is honoured only with an EXPLICIT `APP_ENV=local`. |
 | `DATABASE_URL` | none | yes | yes | SQLAlchemy URL, must start with `postgresql+psycopg://`. |
 | `LOG_LEVEL` | `INFO` | no | no | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL`. |
-| `STARTUP_CHECKS` | `true` | no | no | `false` skips EVERY boot check (pgvector, Alembic head, text search config, checkpoint tables, LLM profiles, tokenizer warm-up, served TEI model). Tests and tooling only; never in production. |
+| `STARTUP_CHECKS` | `true` | no | no | `false` skips EVERY boot check (pgvector, Alembic head, text search config, BM25 index when a profile uses `bm25_hybrid`, checkpoint tables, LLM profiles, tokenizer warm-up, served TEI model). Tests and tooling only; never in production. |
 
 ## Database (`DATABASE_*`)
 
@@ -82,7 +82,7 @@ these are ignored there (they are host paths/URLs); use the `APP_*` variants des
 |---|---|---|---|---|
 | `KNOWLEDGE_PROFILES_DIR` | unset | no | no | Directory with one YAML RAG profile per file, loaded at boot (unset = only the built-in default profile). |
 | `KNOWLEDGE_TEXT_SEARCH_CONFIG` | `public.es_unaccent` | no | no | Text search configuration for the lexical branch of hybrid search. Change it only if the migration used another. |
-| `KNOWLEDGE_HYBRID_BRANCH_DEPTH` | `50` | no | no | Candidates taken from EACH branch of hybrid search (1..1000). |
+| `KNOWLEDGE_HYBRID_BRANCH_DEPTH` | `50` | no | no | Candidates taken from EACH branch of `hybrid` and `bm25_hybrid` search (1..1000). |
 | `KNOWLEDGE_HYBRID_RRF_K` | `60` | no | no | Reciprocal rank fusion constant. |
 | `KNOWLEDGE_MAX_QUERY_CHARS` | `2000` | no | no | Longest accepted retrieval query; longer ones are rejected. |
 | `KNOWLEDGE_PROBE_CONCURRENCY` | `2` | no | no | Evidence-router probe searches in flight; at most `DATABASE_POOL_SIZE - 1` (min 1). |

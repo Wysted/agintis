@@ -4,7 +4,7 @@ import asyncio
 import math
 import re
 import unicodedata
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from typing import Any
@@ -85,6 +85,14 @@ def lexical_score(query_terms: Sequence[str], text: str) -> float:
     if not query_terms or any(term not in terms for term in query_terms):
         return 0.0
     return sum(terms.count(term) for term in set(query_terms)) / len(terms)
+
+
+def any_term_score(query_terms: Sequence[str], text: str) -> float:
+    """0.0 unless SOME query term occurs in `text` (OR, a stand-in for BM25 without IDF);
+    otherwise the term frequency normalised by length (higher is better)."""
+    terms = lexical_terms(text)
+    found = sum(terms.count(term) for term in set(query_terms))
+    return found / len(terms) if found else 0.0
 
 
 def cosine(a: Sequence[float], b: Sequence[float]) -> float:
@@ -236,6 +244,28 @@ class InMemoryChunkRepository(ChunkRepository):
         *,
         metadata_fields: Sequence[MetadataField] = (),
     ) -> list[ScoredChunk]:
+        return self._text_search(tenant_id, query_text, filter, k, metadata_fields, lexical_score)
+
+    async def search_bm25(
+        self,
+        tenant_id: TenantId,
+        query_text: str,
+        filter: FilterExpr | None,
+        k: int,
+        *,
+        metadata_fields: Sequence[MetadataField] = (),
+    ) -> list[ScoredChunk]:
+        return self._text_search(tenant_id, query_text, filter, k, metadata_fields, any_term_score)
+
+    def _text_search(
+        self,
+        tenant_id: TenantId,
+        query_text: str,
+        filter: FilterExpr | None,
+        k: int,
+        metadata_fields: Sequence[MetadataField],
+        score_of: Callable[[Sequence[str], str], float],
+    ) -> list[ScoredChunk]:
         if k <= 0:
             raise ValueError("k must be greater than 0")
         ensure_fields(filter, chunk_filterable_fields(metadata_fields))
@@ -246,7 +276,7 @@ class InMemoryChunkRepository(ChunkRepository):
             for chunk, _ in self.items
             if self._is_served(chunk)
             and matches(expr, _chunk_record(chunk))
-            and (score := lexical_score(query_terms, chunk.text)) > 0.0
+            and (score := score_of(query_terms, chunk.text)) > 0.0
         ]
         hits.sort(key=lambda h: (-h.score, h.chunk.id))
         return hits[:k]

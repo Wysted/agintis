@@ -1,13 +1,16 @@
 """Hybrid retrieval: RRF, the retrieval-mode strategies and `RetrieveForTopic` wiring."""
 
+import math
 from collections.abc import Sequence
 
 import pytest
 from langchain_core.embeddings import DeterministicFakeEmbedding
 
 from agintis.modules.knowledge.api import (
+    BM25_HYBRID_RETRIEVAL_MODE,
     DENSE_RETRIEVAL_MODE,
     HYBRID_RETRIEVAL_MODE,
+    Bm25HybridRetrieval,
     HybridRetrieval,
     IngestDocument,
     QueryTooLongError,
@@ -27,8 +30,10 @@ from agintis.modules.knowledge.application import (
     NoopReranker,
     RetrievedHit,
 )
-from agintis.modules.knowledge.domain import Chunk, reciprocal_rank_fusion
+from agintis.modules.knowledge.application.retrieval_modes import BM25_LEXICAL_WEIGHT
+from agintis.modules.knowledge.domain import Chunk, MetadataField, reciprocal_rank_fusion
 from agintis.modules.knowledge.infrastructure.registry import build_retrieval_modes
+from agintis.shared_kernel.criteria import Filter, FilterExpr
 from agintis.shared_kernel.ids import ChunkId, DocumentId, TenantId
 from tests.fakes.clock import FixedClock
 from tests.fakes.knowledge import (
@@ -37,6 +42,7 @@ from tests.fakes.knowledge import (
     InMemoryChunkRepository,
     InMemoryDocumentRepository,
     InMemoryIngestLock,
+    any_term_score,
     lexical_score,
     lexical_terms,
 )
@@ -94,6 +100,30 @@ class TestReciprocalRankFusion:
         with pytest.raises(ValueError, match="limit"):
             reciprocal_rank_fusion([], [], limit=0)
 
+    def test_branch_weights_scale_each_reciprocal_rank(self) -> None:
+        fused = reciprocal_rank_fusion(
+            _scored("a", "b"), _scored("b", "c"), k=60, dense_weight=1.0, lexical_weight=0.5
+        )
+        scores = {str(f.chunk.id): f.fused_score for f in fused}
+        assert scores["b"] == pytest.approx(1 / 62 + 0.5 / 61)
+        assert scores["a"] == pytest.approx(1 / 61)
+        assert scores["c"] == pytest.approx(0.5 / 62)
+
+    def test_a_lighter_lexical_branch_cannot_outrank_the_dense_top_alone(self) -> None:
+        dense, lexical = _scored("a", "b"), _scored("b", "c")
+        lighter = reciprocal_rank_fusion(_scored("z"), _scored("c"), lexical_weight=0.5)
+        assert [f.chunk.id for f in lighter] == ["z", "c"]  # equal weights would put c first
+        assert reciprocal_rank_fusion(dense, lexical) == reciprocal_rank_fusion(
+            dense, lexical, dense_weight=1.0, lexical_weight=1.0
+        )
+
+    @pytest.mark.parametrize("weight", [0.0, -1.0, math.nan])
+    def test_non_positive_weights_are_rejected(self, weight: float) -> None:
+        with pytest.raises(ValueError, match="weights"):
+            reciprocal_rank_fusion([], [], lexical_weight=weight)
+        with pytest.raises(ValueError, match="weights"):
+            reciprocal_rank_fusion([], [], dense_weight=weight)
+
 
 class TestFakeLexicalScorer:
     def test_terms_are_accent_free_lowercase_without_stopwords(self) -> None:
@@ -103,6 +133,11 @@ class TestFakeLexicalScorer:
         assert lexical_score(["afiliacion"], "la afiliación") > 0
         assert lexical_score(["afiliacion", "pago"], "la afiliación") == 0.0
         assert lexical_score([], "texto") == 0.0
+
+    def test_the_bm25_stand_in_needs_any_query_term(self) -> None:
+        assert any_term_score(["afiliacion", "pago"], "la afiliación") > 0
+        assert any_term_score(["pago"], "la afiliación") == 0.0
+        assert any_term_score([], "texto") == 0.0
 
 
 class RecordingReranker(Reranker):
@@ -142,16 +177,22 @@ async def _env(top_k: int = 3, **profile: object) -> tuple[RetrieveForTopic, Rag
 
 
 class TestRetrievalModes:
-    def test_the_registry_exposes_both_keys(self) -> None:
+    def test_the_registry_exposes_every_key(self) -> None:
         modes = build_retrieval_modes(branch_depth=10, rrf_k=30)
-        assert set(modes) == {DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE}
+        assert set(modes) == {
+            DENSE_RETRIEVAL_MODE,
+            HYBRID_RETRIEVAL_MODE,
+            BM25_HYBRID_RETRIEVAL_MODE,
+        }
         assert isinstance(modes[DENSE_RETRIEVAL_MODE], DenseRetrieval)
+        assert isinstance(modes[BM25_HYBRID_RETRIEVAL_MODE], Bm25HybridRetrieval)
 
-    def test_hybrid_parameters_are_validated(self) -> None:
+    @pytest.mark.parametrize("strategy", [HybridRetrieval, Bm25HybridRetrieval])
+    def test_hybrid_parameters_are_validated(self, strategy: type[HybridRetrieval]) -> None:
         with pytest.raises(ValueError, match="branch_depth"):
-            HybridRetrieval(branch_depth=0)
+            strategy(branch_depth=0)
         with pytest.raises(ValueError, match="rrf_k"):
-            HybridRetrieval(rrf_k=0)
+            strategy(rrf_k=0)
 
     async def test_dense_candidates_carry_similarity_only(self) -> None:
         retrieve, _ = await _env()
@@ -173,6 +214,78 @@ class TestRetrievalModes:
         assert found[0].lexical_rank == 1
         assert found[0].dense_rank == 1
         assert found[0].scored.score == found[0].fused_score
+
+
+class BranchSpy(InMemoryChunkRepository):
+    """Records which branch searches ran, with their filter, depth and metadata schema."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[tuple[str, FilterExpr | None, int, tuple[MetadataField, ...]]] = []
+
+    async def search(  # type: ignore[no-untyped-def]
+        self, tenant_id, query_vector, filter, k, *, metadata_fields=()
+    ):
+        self.calls.append(("dense", filter, k, tuple(metadata_fields)))
+        return await super().search(
+            tenant_id, query_vector, filter, k, metadata_fields=metadata_fields
+        )
+
+    async def search_lexical(  # type: ignore[no-untyped-def]
+        self, tenant_id, query_text, filter, k, *, metadata_fields=()
+    ):
+        self.calls.append(("lexical", filter, k, tuple(metadata_fields)))
+        return await super().search_lexical(
+            tenant_id, query_text, filter, k, metadata_fields=metadata_fields
+        )
+
+    async def search_bm25(  # type: ignore[no-untyped-def]
+        self, tenant_id, query_text, filter, k, *, metadata_fields=()
+    ):
+        self.calls.append(("bm25", filter, k, tuple(metadata_fields)))
+        return await super().search_bm25(
+            tenant_id, query_text, filter, k, metadata_fields=metadata_fields
+        )
+
+
+def _spy_chunk(name: str, text: str) -> Chunk:
+    return Chunk(ChunkId(name), DocumentId("d"), TENANT, "p", int(name[-1]), text, {"area": "x"})
+
+
+class TestBm25HybridRetrieval:
+    async def test_fuses_dense_with_the_bm25_branch_at_the_measured_weight(self) -> None:
+        spy = BranchSpy()
+        # c1 is the dense top; c2 matches only one of the two query terms (OR, unlike plainto).
+        await spy.add_many(
+            [_spy_chunk("c1", "otra cosa"), _spy_chunk("c2", "afiliacion sola")],
+            [[1.0, 0.0], [0.0, 1.0]],
+        )
+        found = await Bm25HybridRetrieval(branch_depth=5, rrf_k=60).candidates(
+            spy, CandidateRequest(TENANT, "afiliacion pago", [1.0, 0.0], None, 2)
+        )
+        by_id = {str(c.scored.chunk.id): c for c in found}
+        assert [str(c.scored.chunk.id) for c in found] == ["c2", "c1"]
+        assert by_id["c2"].lexical_rank == 1
+        assert by_id["c2"].fused_score == pytest.approx(1 / 62 + BM25_LEXICAL_WEIGHT / 61)
+        assert by_id["c1"].fused_score == pytest.approx(1 / 61)
+        assert by_id["c1"].lexical_rank is None
+        assert by_id["c1"].similarity == pytest.approx(1.0)
+
+    async def test_both_branches_get_the_same_filter_schema_and_depth(self) -> None:
+        spy = BranchSpy()
+        schema = (MetadataField("area", "str", filterable=True),)
+        expr = Filter.eq("area", "x")
+        await Bm25HybridRetrieval(branch_depth=3).candidates(
+            spy, CandidateRequest(TENANT, "q", [1.0, 0.0], expr, 7, schema)
+        )
+        assert spy.calls == [("dense", expr, 7, schema), ("bm25", expr, 7, schema)]
+
+    async def test_a_bm25_profile_retrieves_through_retrieve_for_topic(self) -> None:
+        retrieve, profile = await _env(retrieval_mode=BM25_HYBRID_RETRIEVAL_MODE)
+        top = (await retrieve.execute(TENANT, profile, "paragraph 3")).hits[0]
+        assert top.chunk.chunk.text == "paragraph 3"
+        assert top.score == top.fused_score
+        assert (top.dense_rank, top.lexical_rank) == (1, 1)
 
 
 class TestRetrieveForTopicModes:

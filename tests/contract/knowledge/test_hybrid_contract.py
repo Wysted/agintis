@@ -1,13 +1,15 @@
-"""Contract of the lexical branch and of hybrid (dense + lexical, RRF) search, per backend.
+"""Contract of the lexical and BM25 branches and of hybrid (dense + lexical, RRF) search.
 
 Same guarantees as the dense search: tenant isolation, READY-only serving, filters applied in
-BOTH branches, deterministic order. The fake implements a simplified lexical scorer (AND of
-accent-free terms); the texts below only use words every backend tokenizes the same way.
+BOTH branches, deterministic order. The fake implements simplified lexical scorers (AND / OR of
+accent-free terms); the texts below only use words every backend tokenizes the same way. The
+Postgres BM25 branch needs pg_textsearch and its index (the project's DB image).
 """
 
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy.exc import DBAPIError
 
 from agintis.modules.knowledge.domain import (
     Chunk,
@@ -18,6 +20,7 @@ from agintis.modules.knowledge.domain import (
 )
 from agintis.shared_kernel.criteria import Filter, UnknownFieldError
 from agintis.shared_kernel.ids import ChunkId, DocumentId, TenantId
+from tests.conftest import skip_or_fail
 from tests.contract.knowledge.conftest import Repos
 
 A = TenantId("tenant-a")
@@ -138,6 +141,82 @@ class TestLexicalBranch:
         hits = await repos.chunks.search_lexical(A, QUERY, None, k=10)
         assert [h.chunk.id for h in hits] == sorted(c.id for c in chunks)
         assert len(await repos.chunks.search_lexical(A, QUERY, None, k=2)) == 2
+
+
+@pytest.fixture
+async def bm25_repos(repos: Repos) -> Repos:
+    try:
+        await repos.chunks.search_bm25(A, QUERY, None, k=1)
+    except DBAPIError as exc:  # no pg_textsearch / no index: an old pgvector-only server
+        skip_or_fail(f"BM25 search unavailable: {exc.orig.__class__.__name__}")
+    return repos
+
+
+class TestBm25Branch:
+    async def test_any_term_matches_accents_aside_and_more_terms_rank_first(
+        self, bm25_repos: Repos
+    ) -> None:
+        repos = bm25_repos
+        await repos.documents.save(_doc(A, "d"))
+        both = _chunk(A, "d", "c1", EXACT_TEXT)
+        one = _chunk(A, "d", "c2", "La afiliacion es obligatoria para todos")
+        other = _chunk(A, "d", "c3", OTHER_TEXT)
+        await repos.chunks.add_many([other, one, both], [NEAR, NEAR, NEAR])
+        hits = await repos.chunks.search_bm25(A, "afiliacion automatica", None, k=10)
+        assert [h.chunk.id for h in hits] == [both.id, one.id]  # OR, unlike search_lexical
+        assert hits[0].score > hits[1].score > 0
+
+    async def test_queries_without_a_matching_term_return_nothing(self, bm25_repos: Repos) -> None:
+        repos = bm25_repos
+        await repos.documents.save(_doc(A, "d"))
+        await repos.chunks.add_many([_chunk(A, "d", "c1", EXACT_TEXT)], [NEAR])
+        assert await repos.chunks.search_bm25(A, "inexistente", None, k=10) == []
+        assert await repos.chunks.search_bm25(A, "   ", None, k=10) == []
+        assert await repos.chunks.search_bm25(A, "", None, k=10) == []
+        for hostile in ("afiliación & | ! ( ) :* <-> \\", "'", "(", "a:*b", "<@>"):
+            await repos.chunks.search_bm25(A, hostile, None, k=10)  # never a syntax error
+
+    async def test_only_the_requesting_tenant_and_only_ready_documents(
+        self, bm25_repos: Repos
+    ) -> None:
+        repos = bm25_repos
+        await repos.documents.save(_doc(A, "da"))
+        await repos.documents.save(_doc(B, "db"))
+        await repos.documents.save(_doc(A, "old", DocumentStatus.SUPERSEDED))
+        await repos.documents.save(_doc(A, "new", DocumentStatus.PENDING))
+        mine = _chunk(A, "da", "c1", EXACT_TEXT)
+        await repos.chunks.add_many([mine], [NEAR])
+        await repos.chunks.add_many([_chunk(B, "db", "c1", EXACT_TEXT)], [NEAR])
+        await repos.chunks.add_many([_chunk(A, "old", "c2", EXACT_TEXT)], [NEAR])
+        await repos.chunks.add_many([_chunk(A, "new", "c3", EXACT_TEXT)], [NEAR])
+        hits = await repos.chunks.search_bm25(A, QUERY, None, k=10)
+        assert [h.chunk.id for h in hits] == [mine.id]
+        foreign = Filter.eq("tenant_id", B)
+        assert await repos.chunks.search_bm25(A, QUERY, foreign, k=10) == []
+
+    async def test_filters_and_validation(self, bm25_repos: Repos) -> None:
+        repos = bm25_repos
+        await repos.documents.save(_doc(A, "d"))
+        sales = _chunk(A, "d", "c1", EXACT_TEXT, area="sales")
+        hr = _chunk(A, "d", "c2", EXACT_TEXT, area="hr")
+        await repos.chunks.add_many([sales, hr], [NEAR, NEAR])
+        got = await repos.chunks.search_bm25(
+            A, QUERY, Filter.eq("area", "hr"), k=10, metadata_fields=SCHEMA
+        )
+        assert [h.chunk.id for h in got] == [hr.id]
+        with pytest.raises(UnknownFieldError):
+            await repos.chunks.search_bm25(A, QUERY, Filter.eq("area", "hr"), k=10)
+        with pytest.raises(ValueError, match="k must be"):
+            await repos.chunks.search_bm25(A, QUERY, None, k=0)
+
+    async def test_ties_break_by_chunk_id_and_k_limits(self, bm25_repos: Repos) -> None:
+        repos = bm25_repos
+        await repos.documents.save(_doc(A, "d"))
+        chunks = [_chunk(A, "d", f"c{n}", EXACT_TEXT) for n in (3, 1, 2)]
+        await repos.chunks.add_many(chunks, [NEAR] * 3)
+        hits = await repos.chunks.search_bm25(A, QUERY, None, k=10)
+        assert [h.chunk.id for h in hits] == sorted(c.id for c in chunks)
+        assert len(await repos.chunks.search_bm25(A, QUERY, None, k=2)) == 2
 
 
 class TestHybridSearch:

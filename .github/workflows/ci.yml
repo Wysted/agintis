@@ -42,24 +42,9 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/agintis
       TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
-      PGPASSWORD: postgres
       # A missing Postgres/TEI fails the tests instead of skipping them (see tests/conftest.py).
       # The optional reranker still skips: it is not started here.
       AGINTIS_REQUIRE_SERVICES: "1"
-    services:
-      db:
-        image: pgvector/pgvector:0.8.7-pg17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: agintis
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d agintis"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,13 +54,24 @@ jobs:
           enable-cache: true
       - run: uv sync --all-extras
 
-      # Same extensions as docker/postgres/init, and only in the app database like it: tests create
-      # them in their own databases, and the unprivileged-migrator tests need a database without them.
-      - name: Create extensions
+      # Postgres runs as a step: `services:` cannot build, and the DB image (pgvector +
+      # pg_textsearch) is the docker/postgres Dockerfile that compose builds. The init scripts
+      # create the extensions in the app database only, like compose: tests create them in their
+      # own databases, and the unprivileged-migrator tests need a database without them.
+      - name: Start Postgres
         run: |
-          psql -h localhost -U postgres -d agintis \
-            -c "CREATE EXTENSION IF NOT EXISTS vector" \
-            -c "CREATE EXTENSION IF NOT EXISTS unaccent"
+          docker build -t agintis-postgres docker/postgres
+          docker run -d --name db -p 5432:5432 \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=agintis \
+            -v "$GITHUB_WORKSPACE/docker/postgres/init:/docker-entrypoint-initdb.d:ro" \
+            agintis-postgres
+          # Over TCP: during the init phase the server listens on the Unix socket only.
+          for _ in $(seq 1 30); do
+            docker exec db pg_isready -h 127.0.0.1 -U postgres -d agintis >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          docker logs --tail 100 db
+          exit 1
 
       # TEI runs as a step (not a `services:` container) so the HF model cache can be restored
       # BEFORE it starts: service containers start before any step. The cache holds the bge-m3
@@ -136,3 +132,10 @@ jobs:
           cache-from: type=gha
           # Only main writes the cache; PRs read it without evicting it.
           cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max' || '' }}
+      # The DB image too (integration only runs on main): a broken base bump fails the PR.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: docker/postgres
+          push: false
+          cache-from: type=gha,scope=db
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max,scope=db' || '' }}
