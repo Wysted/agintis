@@ -171,6 +171,8 @@ metadata_fields:
   - {name: cited_laws,     type: 'list[str]', source: 'extractor:legal_refs', filterable: true}
 default_filter: null
 reranker_key: none
-# Lexical leg: NCG questions cite numbers, dates and legal references ("NCG N° 372") that a lexical
-# match pins down.
-retrieval_mode: bm25_hybrid  # MRR@10 vs dense, see README
+# Hybrid: NCG questions cite numbers, dates and legal references ("NCG N° 372") that a lexical
+# match pins down. Neutral on the current eval (hit@3 and MRR unchanged, 7 questions); the
+# lexical branch only adds candidates when ALL query terms match, otherwise it is a no-op.
+retrieval_mode: hybrid
+# bm25_hybrid measured, not adopted (old dev set -0.0116 isolated), see README.

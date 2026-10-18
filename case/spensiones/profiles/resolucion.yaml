@@ -74,4 +74,4 @@ metadata_fields:
     filterable: true
 default_filter: null
 reranker_key: none
-retrieval_mode: bm25_hybrid  # MRR@10 vs dense, see README
+# bm25_hybrid measured, not adopted (old dev set -0.0116 isolated), see README.

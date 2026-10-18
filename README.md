@@ -53,7 +53,8 @@ overridden: pass container paths with `APP_LLM_PROFILES_FILE`, `APP_AUTH_JWKS_FI
 Ingest and the app must use the same tenant (the ingest CLI defaults to `default`).
 Tagged releases publish the image as `ghcr.io/wysted/agintis:<version>`: set
 `APP_IMAGE=ghcr.io/wysted/agintis:0.2.0` and run `docker compose --profile app pull` before `up` to use
-it instead of building locally.
+it instead of building locally. The fastapi_es case on main needs revision 0006 (per-tenant BM25
+indexes), which 0.2.0 lacks: build the image from the checkout until the next release.
 
 Ask the agent (SSE stream; with `APP_ENV=local` and `HTTP_DEFAULT_TENANT=default` the header can be
 dropped):
@@ -117,7 +118,7 @@ plus the other extras you use (`--all-extras` includes it); Docker:
 
 1. `profiles/*.yaml`: one retrieval profile per document family (parser, cleaners, chunker,
    embedding/search settings) plus routing rules. No registry to edit. `retrieval_mode`: `dense`
-   (default), `hybrid` (dense + Postgres full-text, any Postgres) or the opt-in `bm25_hybrid`
+   (default), `hybrid` (dense + Postgres full-text, any Postgres) or `bm25_hybrid`
    (dense + BM25 from the pg_textsearch extension, weighted RRF). `bm25_hybrid` needs the
    project's Postgres image (`docker/postgres`, used by compose and CI); managed Postgres such as
    RDS or Cloud SQL lacks the extension, so the app refuses to boot with such a profile there.
@@ -125,11 +126,13 @@ plus the other extras you use (`--all-extras` includes it); Docker:
    before `alembic upgrade head`, otherwise revisions 0005/0006 skip the BM25 indexes (logged
    warning). Each tenant has its own BM25 index, so term statistics (IDF) never mix tenants;
    ingest creates it for a new tenant when a profile uses `bm25_hybrid`, which needs the app's
-   database role to own `chunks` (otherwise ingest logs a warning). Both shipped cases use it
-   on every profile. Measured as MRR@10 vs dense with per-tenant indexes, a fresh spensiones
-   dev set gained (.7304 -> .7694) and the older sets stayed within the -0.01 limit (spensiones
-   .7937 -> .7879, fastapi_es .7917 -> .7861). With one index shared by every tenant the older
-   spensiones set had dropped past it (.7780).
+   database role to own `chunks` (otherwise ingest logs a warning). The template keeps it
+   opt-in; the fastapi_es case uses it and spensiones does not. Measured as MRR@10 vs dense,
+   each case in its own tenant: fastapi_es .7917 -> .7944, adopted; on spensiones a fresh dev
+   set gained (.7304 -> .7694) but the older one dropped past the -0.01 limit
+   (.7937 -> .7821), not adopted. Earlier runs had both cases sharing one tenant: they passed
+   with per-tenant indexes (.7879 / .7861), and with one global index the older spensiones set
+   had dropped (.7780).
 2. Corpus: `index/documents.jsonl` (one row per document, titles from `document_metadata.title`
    or the parser's H1) and the files under `samples/` with `samples/_manifest.json`. Write a
    `fetch/` script that produces both. After a re-fetch that changed or dropped sources, ingest

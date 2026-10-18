@@ -122,7 +122,8 @@ metadata_fields:
   - {name: validity,       type: str,  source: 'const:consolidated_current', filterable: true}
 default_filter: null
 reranker_key: none
-# Lexical leg: the compendio is a numbered legal text (Libro/Titulo/Letra/Capitulo/numero). Exact
-# terms ("afiliacion automatica", ncg numbers) are lost by dense embeddings. Measured with the old
-# hybrid on the eval questions: hit@1 0.64 -> 0.73, MRR 0.70 -> 0.76, no question got worse.
-retrieval_mode: bm25_hybrid  # MRR@10 vs dense, see README
+# Hybrid: the compendio is a numbered legal text (Libro/Titulo/Letra/Capitulo/numero). Exact
+# terms ("afiliacion automatica", ncg numbers) are lost by dense embeddings. Measured on the
+# eval questions: hit@1 0.64 -> 0.73, MRR 0.70 -> 0.76, no question got worse.
+retrieval_mode: hybrid
+# bm25_hybrid measured, not adopted (old dev set -0.0116 isolated), see README.

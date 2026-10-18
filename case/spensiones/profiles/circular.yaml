@@ -113,5 +113,7 @@ metadata_fields:
   - {name: cited_laws,     type: 'list[str]', source: 'extractor:legal_refs', filterable: true}
 default_filter: null
 reranker_key: none
-# Lexical leg: circulars are cited by number and section ("Circular 2425"), which BM25 matches.
-retrieval_mode: bm25_hybrid  # MRR@10 vs dense, see README
+# Hybrid: circulars are cited by number and section ("Circular 2425"). Neutral on the current
+# eval (6 questions, same ranks); kept for terse reference queries the AND lexical branch serves.
+retrieval_mode: hybrid
+# bm25_hybrid measured, not adopted (old dev set -0.0116 isolated), see README.
