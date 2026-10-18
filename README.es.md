@@ -51,7 +51,7 @@ sobrescriben: pasa las rutas del contenedor con `APP_LLM_PROFILES_FILE`, `APP_AU
 `APP_OTLP_ENDPOINT` (ver [docs/configuration.es.md](docs/configuration.es.md)).
 La ingesta y la app deben usar el mismo tenant (la CLI de ingesta usa `default` por defecto).
 Las versiones etiquetadas publican la imagen como `ghcr.io/wysted/agintis:<version>`: define
-`APP_IMAGE=ghcr.io/wysted/agintis:0.1.0` y ejecuta `docker compose --profile app pull` antes de `up` para
+`APP_IMAGE=ghcr.io/wysted/agintis:0.2.0` y ejecuta `docker compose --profile app pull` antes de `up` para
 usarla en lugar de construirla localmente.
 
 Consulta al agente (stream SSE; con `APP_ENV=local` y `HTTP_DEFAULT_TENANT=default` se puede

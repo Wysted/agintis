@@ -52,7 +52,7 @@ overridden: pass container paths with `APP_LLM_PROFILES_FILE`, `APP_AUTH_JWKS_FI
 `APP_OTLP_ENDPOINT` (see [docs/configuration.md](docs/configuration.md)).
 Ingest and the app must use the same tenant (the ingest CLI defaults to `default`).
 Tagged releases publish the image as `ghcr.io/wysted/agintis:<version>`: set
-`APP_IMAGE=ghcr.io/wysted/agintis:0.1.0` and run `docker compose --profile app pull` before `up` to use
+`APP_IMAGE=ghcr.io/wysted/agintis:0.2.0` and run `docker compose --profile app pull` before `up` to use
 it instead of building locally.
 
 Ask the agent (SSE stream; with `APP_ENV=local` and `HTTP_DEFAULT_TENANT=default` the header can be
