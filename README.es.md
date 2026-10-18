@@ -51,11 +51,10 @@ sobrescriben: pasa las rutas del contenedor con `APP_LLM_PROFILES_FILE`, `APP_AU
 `APP_OTLP_ENDPOINT` (ver [docs/configuration.es.md](docs/configuration.es.md)).
 La ingesta y la app deben usar el mismo tenant (la CLI de ingesta usa `default` por defecto).
 Las versiones etiquetadas publican la imagen como `ghcr.io/wysted/agintis:<version>`: define
-`APP_IMAGE=ghcr.io/wysted/agintis:0.2.0` y ejecuta `docker compose --profile app pull` antes de `up` para
-usarla en lugar de construirla localmente. Con el caso fastapi_es de main, 0.2.0 igual funciona, pero su
-bm25_hybrid usa el índice único de la revisión 0005 compartido por todos los tenants, una configuración que
-no se validó: construye la imagen desde el checkout (revisión 0006, índices BM25 por tenant) hasta la
-próxima versión.
+`APP_IMAGE=ghcr.io/wysted/agintis:0.3.0` y ejecuta `docker compose --profile app pull` antes de `up` para
+usarla en lugar de construirla localmente. Descarga la versión que coincide con tu checkout: el caso montado
+y las migraciones de la imagen deben coincidir (0.2.0, por ejemplo, no tiene los índices BM25 por tenant de
+la revisión 0006).
 
 Consulta al agente (stream SSE; con `APP_ENV=local` y `HTTP_DEFAULT_TENANT=default` se puede
 omitir el header):

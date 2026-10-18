@@ -186,7 +186,7 @@ Las lee `docker-compose.yml` (no `Settings`). Los secretos viven en `.env`, que 
 | `POSTGRES_DB` | none | yes | no | Nombre de la base de datos. |
 | `POSTGRES_PORT` | `5432` | no | no | Puerto del host (enlazado a 127.0.0.1) de `db`. |
 | `CASE` | `fastapi_es` | no | no | Directorio del caso bajo `case/` montado en solo lectura en `/app/case` solo en `app` (`migrate` no lo necesita). Debe existir: un directorio faltante falla en `up`. |
-| `APP_IMAGE` | `agintis-app` | no | no | Imagen de `migrate` y `app`. Compose la construye localmente salvo que se haya descargado antes (p. ej. `ghcr.io/wysted/agintis:0.2.0`). |
+| `APP_IMAGE` | `agintis-app` | no | no | Imagen de `migrate` y `app`. Compose la construye localmente salvo que se haya descargado antes (p. ej. `ghcr.io/wysted/agintis:0.3.0`). |
 | `APP_EMBEDDINGS_TOKENIZER` | `/app/models/bge-m3/tokenizer.json` | no | no | Se convierte en `EMBEDDINGS_TOKENIZER` dentro de los contenedores. Cámbialo al usar otro `EMBEDDINGS_MODEL`. |
 | `APP_OTLP_ENDPOINT` | `http://phoenix:6006/v1/traces` | no | no | Se convierte en `OBSERVABILITY_OTLP_ENDPOINT` dentro de los contenedores. |
 | `APP_LLM_PROFILES_FILE` | empty (unset) | no | no | Se convierte en `LLM_PROFILES_FILE` dentro de los contenedores: una ruta DEL CONTENEDOR (p. ej. `/app/case/llm_profiles.yaml`). |

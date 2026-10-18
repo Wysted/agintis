@@ -52,10 +52,9 @@ overridden: pass container paths with `APP_LLM_PROFILES_FILE`, `APP_AUTH_JWKS_FI
 `APP_OTLP_ENDPOINT` (see [docs/configuration.md](docs/configuration.md)).
 Ingest and the app must use the same tenant (the ingest CLI defaults to `default`).
 Tagged releases publish the image as `ghcr.io/wysted/agintis:<version>`: set
-`APP_IMAGE=ghcr.io/wysted/agintis:0.2.0` and run `docker compose --profile app pull` before `up` to use
-it instead of building locally. With main's fastapi_es case, 0.2.0 still runs, but its bm25_hybrid
-uses revision 0005's single index shared by every tenant, a configuration that was not validated:
-build the image from the checkout (revision 0006, per-tenant BM25 indexes) until the next release.
+`APP_IMAGE=ghcr.io/wysted/agintis:0.3.0` and run `docker compose --profile app pull` before `up` to use
+it instead of building locally. Pull the version matching your checkout: the mounted case and the
+image's migrations must agree (0.2.0, for example, lacks the per-tenant BM25 indexes of revision 0006).
 
 Ask the agent (SSE stream; with `APP_ENV=local` and `HTTP_DEFAULT_TENANT=default` the header can be
 dropped):
