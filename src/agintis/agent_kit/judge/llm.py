@@ -274,7 +274,7 @@ def refusal_signals(out_is_refusal: bool, record: AnswerRecord) -> dict[str, boo
     details so the aggregates can report how often they disagree."""
     return {
         "model_is_refusal": out_is_refusal,
-        "heuristic_refusal": looks_like_refusal(record.answer, record.citations),
+        "heuristic_refusal": looks_like_refusal(record.answer, citations=record.citations),
     }
 
 
@@ -295,6 +295,7 @@ _SYNTHETIC_RECORD = AnswerRecord(
         CitedSource(1, "Reglamento A", "file:///a", "El plazo es de diez horas.", "art. 1"),
         CitedSource(2, None, "file:///b", "No se admiten prórrogas salvo fuerza mayor."),
     ),
+    citations="inline",
 )
 
 

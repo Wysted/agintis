@@ -371,7 +371,9 @@ def build_filter_extractors(
             _agent_models(container, topics[name].spec, ChatRole.ANALYZER),
             container.profiles.get(name),
             topics[name].topic.filters,
-            topics[name].spec.prompts.to_prompt_set().extract_filters,
+            topics[name]
+            .spec.prompts.to_prompt_set(citations=topics[name].spec.citations)
+            .extract_filters,
         )
         for name in profile_names
         if name in topics
@@ -385,7 +387,7 @@ def build_analyzers(
     return {
         name: AnalyzeNode(
             _agent_models(container, topics[name].spec, ChatRole.ANALYZER),
-            topics[name].spec.prompts.to_prompt_set().analyze,
+            topics[name].spec.prompts.to_prompt_set(citations=topics[name].spec.citations).analyze,
             topics[name].spec.max_history_messages,
         )
         for name in profile_names

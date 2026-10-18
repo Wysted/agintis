@@ -487,7 +487,14 @@ def test_an_unexpected_failure_aborts_with_exit_3(
 
 
 def _record(ident: str, error: str | None = None) -> AnswerRecord:
-    return AnswerRecord(id=ident, question="q", answer="" if error else "a", agent="a", error=error)
+    return AnswerRecord(
+        id=ident,
+        question="q",
+        answer="" if error else "a",
+        agent="a",
+        error=error,
+        citations="inline",
+    )
 
 
 def test_the_writer_appends_flushed_lines_to_a_private_partial_and_renames_on_commit(

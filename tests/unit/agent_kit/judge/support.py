@@ -47,6 +47,7 @@ def make_record(
         meta={"git": "abc"},
         error=error,
         refusal_reason=refusal_reason,
+        citations="inline",
     )
 
 

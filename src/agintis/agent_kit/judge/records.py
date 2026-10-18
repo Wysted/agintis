@@ -98,7 +98,9 @@ class AnswerRecord:
     meta: Mapping[str, Any] = field(default_factory=dict)
     error: str | None = None
     refusal_reason: str | None = None  # why the refuse path ran (None = a normal answer)
-    citations: CitationStyle = "inline"  # the agent's `citations` (`none` = no [n] by design)
+    # the agent's `citations` (`none` = no [n] by design); no default: only `record_from_json`
+    # reads a missing one (old dumps) as `inline`
+    citations: CitationStyle = field(kw_only=True)
 
     @property
     def rendered_sources(self) -> str:

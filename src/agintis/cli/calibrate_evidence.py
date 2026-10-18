@@ -429,7 +429,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         if args.analyze:
             analyzer = AnalyzeNode(
                 agent_models,
-                spec.prompts.to_prompt_set().analyze,
+                spec.prompts.to_prompt_set(citations=spec.citations).analyze,
                 spec.max_history_messages,
             )
             print("analyzing questions (one analyzer call per question)...")

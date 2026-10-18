@@ -8,6 +8,7 @@ called (`router: auto`), with several the ROUTER model picks up to `max_topics` 
 """
 
 import logging
+import re
 from collections.abc import Iterable, Mapping
 from typing import Annotated, Literal, Self
 
@@ -48,6 +49,8 @@ from agintis.platform.llm import ChatRole
 from agintis.shared_kernel.errors import NotFoundError
 
 logger = logging.getLogger(__name__)
+# A prompt that writes "[1]" or "[n]" is probably asking for citation markers.
+_CITATION_MARKER = re.compile(r"\[(?:\d+|n)\]")
 
 # Upper bounds that keep a spec from asking for an unbounded prompt.
 MAX_SOURCES_LIMIT = 20
@@ -81,7 +84,7 @@ class PromptsSpec(_Strict):
     route: str | None = Field(default=None, min_length=1, max_length=MAX_TEXT_CHARS)
     rewrite: str | None = Field(default=None, min_length=1, max_length=MAX_TEXT_CHARS)
 
-    def to_prompt_set(self, citations: CitationStyle = "inline") -> PromptSet:
+    def to_prompt_set(self, *, citations: CitationStyle) -> PromptSet:
         """The prompts of the nodes; the default synthesize prompt follows `citations`."""
         defaults = {"synthesize": DEFAULT_SYNTHESIZE_PROMPTS[citations]}
         return PromptSet(**(defaults | self.model_dump(exclude_none=True)))
@@ -241,10 +244,10 @@ class AgentSpec(_Strict):
                 "(equal means no widening)"
             )
         self._warn_inapplicable_knobs()
-        if self.citations == "none" and self.prompts.synthesize is not None:
+        if self.citations == "none" and _CITATION_MARKER.search(self.prompts.synthesize or ""):
             logger.warning(
-                "agent %r: `citations: none` with a custom prompts.synthesize: make sure your "
-                "prompt does not ask for [n] markers",
+                "agent %r: `citations: none` with a custom prompts.synthesize that mentions [n] "
+                "markers: make sure it does not ask for them",
                 self.id,
             )
         if ChatRole.ROUTER in self.models and not self.uses_llm_router:

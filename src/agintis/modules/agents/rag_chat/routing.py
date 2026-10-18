@@ -50,7 +50,7 @@ def build_router(
         chat_models,
         [TopicInfo(t.name, t.description) for t in spec.topics],
         spec.max_topics,
-        spec.prompts.to_prompt_set().route,
+        spec.prompts.to_prompt_set(citations=spec.citations).route,
         spec.secondary_min_confidence,
     )
 

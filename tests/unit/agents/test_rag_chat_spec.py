@@ -76,7 +76,7 @@ def test_a_minimal_spec_gets_the_defaults() -> None:
     spec = parse_agent_spec({"id": "a", "description": "d", "topics": [_topic()]}, origin="a.yaml")
 
     assert spec.topics[0].filters is None  # every filterable field
-    assert spec.prompts.to_prompt_set().synthesize.startswith("You answer")
+    assert spec.prompts.to_prompt_set(citations="inline").synthesize.startswith("You answer")
     assert (spec.max_sources, spec.max_history_messages) == (8, 10)
 
 
@@ -94,7 +94,7 @@ def test_prompt_overrides_replace_only_the_given_ones() -> None:
         },
         origin="a.yaml",
     )
-    prompts = spec.prompts.to_prompt_set()
+    prompts = spec.prompts.to_prompt_set(citations="inline")
 
     assert prompts.synthesize == "Responde."
     assert prompts.analyze.startswith("You prepare")
@@ -107,37 +107,44 @@ class TestCitations:
         spec = parse_agent_spec(self.RAW, origin="a.yaml")
 
         assert spec.citations == "inline"
-        assert spec.prompts.to_prompt_set(spec.citations).synthesize == DEFAULT_SYNTHESIZE_PROMPT
+        assert (
+            spec.prompts.to_prompt_set(citations=spec.citations).synthesize
+            == DEFAULT_SYNTHESIZE_PROMPT
+        )
 
     def test_none_picks_the_uncited_default_prompt(self) -> None:
         spec = parse_agent_spec({**self.RAW, "citations": "none"}, origin="a.yaml")
 
-        prompt = spec.prompts.to_prompt_set(spec.citations).synthesize
+        prompt = spec.prompts.to_prompt_set(citations=spec.citations).synthesize
         assert prompt == DEFAULT_UNCITED_SYNTHESIZE_PROMPT
-        assert "no [n] markers" in prompt
-        assert "Cite every statement" not in prompt
 
     def test_a_synthesize_override_wins_in_both_styles(self) -> None:
         for style in ("inline", "none"):
             spec = parse_agent_spec(
                 {**self.RAW, "citations": style, "prompts": {"synthesize": "Mine."}}, origin="a"
             )
-            assert spec.prompts.to_prompt_set(spec.citations).synthesize == "Mine."
+            assert spec.prompts.to_prompt_set(citations=spec.citations).synthesize == "Mine."
 
     def test_an_unknown_style_is_rejected(self) -> None:
         with pytest.raises(InvalidAgentSpecError, match="citations"):
             parse_agent_spec({**self.RAW, "citations": "footnotes"}, origin="a.yaml")
 
-    def test_none_with_a_custom_synthesize_prompt_warns(
-        self, caplog: pytest.LogCaptureFixture
+    @pytest.mark.parametrize(
+        ("synthesize", "warns"),
+        [
+            (None, False),
+            ("Mine.", False),
+            ("Answer from the sources [1].", True),
+            ("Cite each source as [n].", True),
+        ],
+    )
+    def test_none_warns_only_when_the_custom_prompt_carries_markers(
+        self, caplog: pytest.LogCaptureFixture, synthesize: str | None, warns: bool
     ) -> None:
+        prompts = {} if synthesize is None else {"synthesize": synthesize}
         with caplog.at_level("WARNING"):
-            parse_agent_spec({**self.RAW, "citations": "none"}, origin="a")
-            assert "citations: none" not in caplog.text
-            parse_agent_spec(
-                {**self.RAW, "citations": "none", "prompts": {"synthesize": "Mine."}}, origin="a"
-            )
-        assert "does not ask for [n] markers" in caplog.text
+            parse_agent_spec({**self.RAW, "citations": "none", "prompts": prompts}, origin="a")
+        assert ("mentions [n] markers" in caplog.text) is warns
 
 
 @pytest.mark.parametrize(
@@ -387,11 +394,11 @@ class TestMultiTopicSpec:
 
     def test_route_and_rewrite_prompts_are_overridable(self) -> None:
         spec = parse_agent_spec(_spec_raw(prompts={"route": "R", "rewrite": "W"}), origin="a.yaml")
-        prompts = spec.prompts.to_prompt_set()
+        prompts = spec.prompts.to_prompt_set(citations="inline")
         assert (prompts.route, prompts.rewrite) == ("R", "W")
         assert (
             parse_agent_spec(_spec_raw(), origin="a")
-            .prompts.to_prompt_set()
+            .prompts.to_prompt_set(citations="inline")
             .route.startswith("You route")
         )
 

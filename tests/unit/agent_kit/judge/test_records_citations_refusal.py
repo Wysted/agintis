@@ -41,7 +41,7 @@ def test_record_roundtrips_through_json() -> None:
 
 
 def test_record_without_scope_or_expected_scope_roundtrips() -> None:
-    record = AnswerRecord(id="x", question="q", answer="a", agent="rag")
+    record = AnswerRecord(id="x", question="q", answer="a", agent="rag", citations="inline")
     assert record_from_json(record.to_json()) == record
     assert record.to_json()["scope"] is None
     assert record.to_json()["expected_scope"] is None
@@ -152,7 +152,7 @@ def test_dangling_citations(answer: str, count: int, expected: tuple[int, ...]) 
     ],
 )
 def test_text_heuristic_detects_refusals(answer: str) -> None:
-    assert looks_like_refusal(answer)
+    assert looks_like_refusal(answer, citations="inline")
 
 
 @pytest.mark.parametrize(
@@ -165,7 +165,7 @@ def test_text_heuristic_detects_refusals(answer: str) -> None:
     ],
 )
 def test_text_heuristic_does_not_flag_answers(answer: str) -> None:
-    assert not looks_like_refusal(answer)
+    assert not looks_like_refusal(answer, citations="inline")
 
 
 def test_scope_out_is_a_refusal_whatever_the_text_says() -> None:
@@ -306,7 +306,7 @@ def test_a_real_sentence_end_still_cuts() -> None:
     ],
 )
 def test_the_widened_markers_catch_the_reviewers_false_negatives(answer: str) -> None:
-    assert looks_like_refusal(answer)
+    assert looks_like_refusal(answer, citations="inline")
 
 
 @pytest.mark.parametrize(
@@ -326,12 +326,15 @@ def test_the_widened_markers_catch_the_reviewers_false_negatives(answer: str) ->
     ],
 )
 def test_the_narrowed_markers_do_not_flag_answers_that_merely_say_no(answer: str) -> None:
-    assert not looks_like_refusal(answer)
+    assert not looks_like_refusal(answer, citations="inline")
 
 
 def test_word_boundaries_stop_substring_matches() -> None:
-    assert not looks_like_refusal("Conozco bien el tema: el plazo es de un año.")
-    assert not looks_like_refusal("Innovacion no lo sedimenta.")  # "no lo se" inside a word
+    assert not looks_like_refusal(
+        "Conozco bien el tema: el plazo es de un año.", citations="inline"
+    )
+    # "no lo se" inside a word
+    assert not looks_like_refusal("Innovacion no lo sedimenta.", citations="inline")
 
 
 # --- review fixes: the hash does not depend on the rendering code -------------------------------
@@ -386,7 +389,7 @@ def test_the_hash_covers_the_question_and_the_expected_scope() -> None:
 def test_an_article_or_a_contrastive_continuation_that_asserts_something_is_not_a_refusal(
     answer: str,
 ) -> None:
-    assert not looks_like_refusal(answer)
+    assert not looks_like_refusal(answer, citations="inline")
 
 
 @pytest.mark.parametrize(
@@ -400,7 +403,7 @@ def test_an_article_or_a_contrastive_continuation_that_asserts_something_is_not_
     ],
 )
 def test_pronoun_forms_and_offers_of_help_stay_refusals(answer: str) -> None:
-    assert looks_like_refusal(answer)
+    assert looks_like_refusal(answer, citations="inline")
 
 
 @pytest.mark.parametrize(
@@ -415,7 +418,7 @@ def test_pronoun_forms_and_offers_of_help_stay_refusals(answer: str) -> None:
 def test_near_domain_refusals_stay_out_of_the_narrow_heuristic_on_purpose(answer: str) -> None:
     # Telling "the sources are silent about X" from "the text says something about X" needs the
     # judge model: the panel's hybrid refusal_correctness takes it from the LLM judges.
-    assert not looks_like_refusal(answer)
+    assert not looks_like_refusal(answer, citations="inline")
 
 
 @pytest.mark.parametrize(
@@ -429,7 +432,7 @@ def test_near_domain_refusals_stay_out_of_the_narrow_heuristic_on_purpose(answer
     ],
 )
 def test_a_semicolon_continuation_is_not_a_contrast(answer: str) -> None:
-    assert looks_like_refusal(answer)
+    assert looks_like_refusal(answer, citations="inline")
 
 
 @pytest.mark.parametrize(
@@ -442,7 +445,7 @@ def test_a_semicolon_continuation_is_not_a_contrast(answer: str) -> None:
     ],
 )
 def test_a_bare_puede_or_consulta_is_a_fact_not_an_offer_of_help(answer: str) -> None:
-    assert not looks_like_refusal(answer)
+    assert not looks_like_refusal(answer, citations="inline")
 
 
 @pytest.mark.parametrize(
@@ -456,7 +459,7 @@ def test_a_bare_puede_or_consulta_is_a_fact_not_an_offer_of_help(answer: str) ->
     ],
 )
 def test_offers_directed_at_the_user_keep_the_refusal(answer: str) -> None:
-    assert looks_like_refusal(answer)
+    assert looks_like_refusal(answer, citations="inline")
 
 
 def test_a_lone_surrogate_in_model_output_is_scrubbed_and_never_crashes_the_hash() -> None:
@@ -649,19 +652,37 @@ def test_an_escaped_backtick_does_not_open_a_code_span() -> None:
 
 def test_a_refusal_with_a_code_bracket_is_still_a_refusal() -> None:
     answer = "No encontré información sobre `items[0]` en las fuentes."
-    assert looks_like_refusal(answer)
-    assert not looks_like_refusal(answer + " [1]")
+    assert looks_like_refusal(answer, citations="inline")
+    assert not looks_like_refusal(answer + " [1]", citations="inline")
 
 
 def test_an_agent_without_citations_refuses_only_when_the_answer_opens_with_it() -> None:
     partial = "Se renueva en el mostrador con tu carnet; no hay información sobre el costo."
-    assert looks_like_refusal(partial)  # inline: an uncited answer is suspect
-    assert not looks_like_refusal(partial, "none")
+    assert looks_like_refusal(partial, citations="inline")  # inline: an uncited answer is suspect
+    assert not looks_like_refusal(partial, citations="none")
     refusal = "  No encontré información sobre eso en las fuentes."
-    assert looks_like_refusal(refusal, "none")
+    assert looks_like_refusal(refusal, citations="none")
     assert is_refusal(replace(make_record(refusal, scope=None), citations="none"))
     # the citation gate still applies
-    assert not looks_like_refusal(refusal + " [1]", "none")
+    assert not looks_like_refusal(refusal + " [1]", citations="none")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Lo siento, no tengo información sobre el costo.",
+        "Lamentablemente no lo sé.",
+        "En las fuentes no hay información sobre eso.",
+        "Lo siento, pero en los documentos proporcionados no encontré nada sobre eso.",
+    ],
+)
+def test_an_uncited_refusal_may_open_with_a_courtesy_or_a_place(answer: str) -> None:
+    assert looks_like_refusal(answer, citations="none")
+
+
+def test_a_lead_in_does_not_turn_a_partial_answer_into_a_refusal() -> None:
+    partial = "Lo siento, se renueva en el mostrador; no hay información sobre el costo."
+    assert not looks_like_refusal(partial, citations="none")
 
 
 def test_precheck_and_enumeration_see_the_same_numbers() -> None:
