@@ -533,10 +533,17 @@ class TestSpensionesCase:
         assert sources["validity"] == "const:consolidated_current"
         assert sources["compendio_path"] == "extractor:template"
 
-    def test_exact_reference_profiles_retrieve_hybrid(self) -> None:
+    def test_exact_reference_profiles_retrieve_hybrid_and_the_rest_dense(self) -> None:
         modes = {p.name: p.retrieval_mode for p in load_profiles_dir(CASE_PROFILES)}
-        hybrid = {name for name, mode in modes.items() if mode == "hybrid"}
-        assert hybrid == {"spensiones_compendio", "spensiones_ncg", "spensiones_circular"}
+        assert modes == {
+            "spensiones_compendio": "hybrid",
+            "spensiones_ncg": "hybrid",
+            "spensiones_circular": "hybrid",
+            "spensiones_resolucion": "dense",
+            "spensiones_jurisprudencia_nota": "dense",
+            "spensiones_jurisprudencia_indice": "dense",
+            "spensiones_articulo_faq": "dense",
+        }
 
     def test_only_the_unvalidated_note_profile_is_a_draft(self) -> None:
         drafts = [p.name for p in load_profiles_dir(CASE_PROFILES) if p.status == "draft"]

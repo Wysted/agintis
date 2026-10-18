@@ -53,8 +53,9 @@ overridden: pass container paths with `APP_LLM_PROFILES_FILE`, `APP_AUTH_JWKS_FI
 Ingest and the app must use the same tenant (the ingest CLI defaults to `default`).
 Tagged releases publish the image as `ghcr.io/wysted/agintis:<version>`: set
 `APP_IMAGE=ghcr.io/wysted/agintis:0.2.0` and run `docker compose --profile app pull` before `up` to use
-it instead of building locally. The fastapi_es case on main needs revision 0006 (per-tenant BM25
-indexes), which 0.2.0 lacks: build the image from the checkout until the next release.
+it instead of building locally. With main's fastapi_es case, 0.2.0 still runs, but its bm25_hybrid
+uses revision 0005's single index shared by every tenant, a configuration that was not validated:
+build the image from the checkout (revision 0006, per-tenant BM25 indexes) until the next release.
 
 Ask the agent (SSE stream; with `APP_ENV=local` and `HTTP_DEFAULT_TENANT=default` the header can be
 dropped):
@@ -131,8 +132,8 @@ plus the other extras you use (`--all-extras` includes it); Docker:
    each case in its own tenant: fastapi_es .7917 -> .7944, adopted; on spensiones a fresh dev
    set gained (.7304 -> .7694) but the older one dropped past the -0.01 limit
    (.7937 -> .7821), not adopted. Earlier runs had both cases sharing one tenant: they passed
-   with per-tenant indexes (.7879 / .7861), and with one global index the older spensiones set
-   had dropped (.7780).
+   with per-tenant indexes (spensiones .7879, fastapi_es .7861), and with one global index the
+   older spensiones set had dropped (.7780).
 2. Corpus: `index/documents.jsonl` (one row per document, titles from `document_metadata.title`
    or the parser's H1) and the files under `samples/` with `samples/_manifest.json`. Write a
    `fetch/` script that produces both. After a re-fetch that changed or dropped sources, ingest

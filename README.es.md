@@ -52,8 +52,10 @@ sobrescriben: pasa las rutas del contenedor con `APP_LLM_PROFILES_FILE`, `APP_AU
 La ingesta y la app deben usar el mismo tenant (la CLI de ingesta usa `default` por defecto).
 Las versiones etiquetadas publican la imagen como `ghcr.io/wysted/agintis:<version>`: define
 `APP_IMAGE=ghcr.io/wysted/agintis:0.2.0` y ejecuta `docker compose --profile app pull` antes de `up` para
-usarla en lugar de construirla localmente. El caso fastapi_es en main necesita la revisión 0006 (índices
-BM25 por tenant), que 0.2.0 no tiene: construye la imagen desde el checkout hasta la próxima versión.
+usarla en lugar de construirla localmente. Con el caso fastapi_es de main, 0.2.0 igual funciona, pero su
+bm25_hybrid usa el índice único de la revisión 0005 compartido por todos los tenants, una configuración que
+no se validó: construye la imagen desde el checkout (revisión 0006, índices BM25 por tenant) hasta la
+próxima versión.
 
 Consulta al agente (stream SSE; con `APP_ENV=local` y `HTTP_DEFAULT_TENANT=default` se puede
 omitir el header):
@@ -130,8 +132,8 @@ más los otros extras que uses (`--all-extras` lo incluye); Docker:
    MRR@10 frente a dense, cada caso en su propio tenant: fastapi_es .7917 -> .7944, adoptado; en
    spensiones un set de desarrollo nuevo mejoró (.7304 -> .7694) pero el anterior cayó más allá del
    límite de -0.01 (.7937 -> .7821), no adoptado. Corridas anteriores tenían ambos casos en un mismo
-   tenant: pasaron con índices por tenant (.7879 / .7861), y con un único índice global el set
-   anterior de spensiones había caído (.7780).
+   tenant: pasaron con índices por tenant (spensiones .7879, fastapi_es .7861), y con un único índice
+   global el set anterior de spensiones había caído (.7780).
 2. Corpus: `index/documents.jsonl` (una fila por documento, títulos desde `document_metadata.title`
    o el H1 del parser) y los archivos bajo `samples/` con `samples/_manifest.json`. Escribe un
    script en `fetch/` que produzca ambos. Tras una nueva descarga que cambió o eliminó fuentes, ingesta

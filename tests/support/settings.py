@@ -15,3 +15,16 @@ def make_settings(**overrides: Any) -> Settings:
     # Threads are off by default in tests: no pool is opened against the fake URL above.
     overrides.setdefault("checkpointer", {"enabled": False})
     return Settings.isolated(**overrides)
+
+
+class FakeSettings:
+    """Stand-in for `get_settings()` in CLI runs whose Container is faked too: every section is
+    this same stub and `model_copy` returns it."""
+
+    tokenizer_source = "x"
+
+    def __getattr__(self, name: str) -> "FakeSettings":
+        return self
+
+    def model_copy(self, update: object = None) -> "FakeSettings":
+        return self

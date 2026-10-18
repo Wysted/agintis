@@ -362,14 +362,24 @@ class TestModeSets(_RunHelpers):
         self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
     ) -> None:
         container = await self._container(bm25=True)
+        bm25_calls: list[tuple[object, ...]] = []
+        dense_calls: list[object] = []
 
         async def unindexed(*args: object, **kwargs: object) -> list[ScoredChunk]:
-            raise TextSearchConfigError("Tenant 'default' has chunks but no BM25 index")
+            bm25_calls.append(args)
+            raise TextSearchConfigError("Tenant 't' has chunks but no BM25 index")
+
+        async def dense(*args: object, **kwargs: object) -> list[ScoredChunk]:
+            dense_calls.append(args)
+            return []
 
         monkeypatch.setattr(container.chunks, "search_bm25", unindexed)
+        monkeypatch.setattr(container.chunks, "search", dense)
         self._patch(monkeypatch, container, llm=False)
         with pytest.raises(TextSearchConfigError, match="no BM25 index"):
             await eval_cli.run(self._args(questions_file, mode=BM25_HYBRID_RETRIEVAL_MODE))
+        assert bm25_calls == [(TenantId("t"), "probe", None, 1)]  # the probe, before any search
+        assert dense_calls == []
 
     async def test_an_explicit_bm25_hybrid_fails_without_pg_textsearch(
         self, monkeypatch: pytest.MonkeyPatch, questions_file: Path

@@ -8,6 +8,7 @@ index at its first ingest.
 """
 
 import asyncio
+import json
 import logging
 import re
 import secrets
@@ -47,7 +48,7 @@ from tests.conftest import skip_or_fail
 from tests.contract.knowledge.conftest import Repos
 from tests.fakes.knowledge import InMemoryChunkRepository, InMemoryDocumentRepository
 from tests.support.postgres import BM25_INDEXES_SQL, truncate_all
-from tests.unit.cli.test_local_case import _FakeSettings
+from tests.support.settings import FakeSettings
 
 A = TenantId("tenant-a")
 B = TenantId("tenant-b")
@@ -512,10 +513,13 @@ class TestBm25TenantIndexes:
         async with engine.begin() as conn:  # e.g. ingested while no profile used bm25_hybrid
             await conn.execute(text(f'DROP INDEX "{bm25_index_name(tenant)}"'))
 
+        seen: list[object] = []
+
         class EveryDocumentUnchanged:
             async def stream(self, tenant: object, items: Any, **kw: object) -> Any:
                 for item in items:
-                    yield BatchOutcome(getattr(item, "uri", "?"), "skipped")
+                    seen.append(item)
+                    yield BatchOutcome(item.uri, "skipped")  # unchanged: add_many never runs
 
         class IngestContainer:
             ingest_batch = EveryDocumentUnchanged()
@@ -533,13 +537,38 @@ class TestBm25TenantIndexes:
 
         index = tmp_path / "index" / "documents.jsonl"
         index.parent.mkdir()
-        index.write_text('{"id": "d", "url": "https://example.test/d"}\n', encoding="utf-8")
-        monkeypatch.setattr(ingest_cli, "get_settings", _FakeSettings)
+        index.write_text('{"id": "d", "title": "D"}\n', encoding="utf-8")
+        samples = tmp_path / "samples"
+        (samples / "docs").mkdir(parents=True)
+        (samples / "docs" / "d.txt").write_text(EXACT_TEXT, encoding="utf-8")
+        manifest = [
+            {
+                "id": "d",
+                "family": "docs",
+                "path": "docs/d.txt",
+                "url": "https://example.test/d",
+                "content_type": "text/plain",
+            }
+        ]
+        (samples / "_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        monkeypatch.setattr(ingest_cli, "get_settings", FakeSettings)
         monkeypatch.setattr(ingest_cli, "Container", IngestContainer)
-        argv = ["--profiles", "p", "--index", str(index), "--tenant", tenant]
-        await ingest_cli.run(ingest_cli.build_parser().parse_args(argv), lambda outcome: None)
+
+        async def ingest(run_tenant: str) -> None:
+            argv = ["--profiles", "p", "--index", str(index), "--samples", str(samples)]
+            args = ingest_cli.build_parser().parse_args([*argv, "--tenant", run_tenant])
+            await ingest_cli.run(args, lambda outcome: None)
+
+        await ingest(tenant)
+        assert seen  # the documents arrived, all unchanged
+        assert not any(isinstance(item, BatchOutcome) for item in seen)
         assert bm25_index_name(tenant) in await _bm25_indexes(engine)
         assert len(await repos.chunks.search_bm25(tenant, QUERY, None, 10)) == 1
+
+        # A tenant without chunks (a typo, an empty run) gets no full-table build, no orphan.
+        empty = TenantId(f"t-{uuid4().hex}")
+        await ingest(empty)
+        assert bm25_index_name(empty) not in await _bm25_indexes(engine)
 
     async def test_the_index_build_waits_for_the_lock_on_chunks_only_so_long(
         self, pg_bm25: tuple[Repos, AsyncEngine]

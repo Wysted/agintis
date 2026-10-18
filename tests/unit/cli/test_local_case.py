@@ -13,6 +13,7 @@ from agintis.cli import ingest as cli
 from agintis.cli.ingest import build_parser, format_outcome, local_items, main
 from agintis.cli.local_case import iter_index, iter_index_entries, load_manifest, source_for
 from agintis.modules.knowledge.api import DEFAULT_PROFILE, BatchOutcome, SourceFile
+from tests.support.settings import FakeSettings
 
 ROWS = [
     {"id": "doc-a", "doc_type": "circular", "number": "1", "section": ["S1", "S2"], "title": "A"},
@@ -331,16 +332,6 @@ def test_prune_is_opt_in_and_incompatible_with_limit(capsys: pytest.CaptureFixtu
     assert "--prune" in capsys.readouterr().err
 
 
-class _FakeSettings:
-    tokenizer_source = "x"
-
-    def __getattr__(self, name: str) -> "_FakeSettings":
-        return self  # settings.<section> is the same stub
-
-    def model_copy(self, update: object = None) -> "_FakeSettings":
-        return self
-
-
 class _Named:
     def __init__(self, name: str) -> None:
         self.name = name
@@ -359,8 +350,8 @@ def _fake_container(
     seen = [] if events is None else events
 
     class FakeChunks:
-        async def ensure_bm25_index(self, tenant: object) -> None:
-            seen.append(("ensure_bm25_index", tenant))
+        async def repair_bm25_index(self, tenant: object) -> None:
+            seen.append(("repair_bm25_index", tenant))
 
     class FakeBatch:
         async def stream(self, tenant: object, items: object, **kw: object):  # type: ignore[no-untyped-def]
@@ -395,17 +386,17 @@ def _prune_argv(index: Path, samples: Path) -> list[str]:
     return ["--profiles", "p", "--index", str(index), "--samples", str(samples), "--prune"]
 
 
-def test_the_tenants_bm25_index_is_ensured_once_before_the_first_item(
+def test_the_tenants_bm25_index_is_repaired_once_before_the_first_item(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Unchanged documents never reach add_many: the run itself builds a missing index."""
     index, samples = _case(tmp_path)
     events: list[tuple[str, object]] = []
-    monkeypatch.setattr(cli, "get_settings", _FakeSettings)
+    monkeypatch.setattr(cli, "get_settings", FakeSettings)
     monkeypatch.setattr(cli, "Container", _fake_container(None, [], events))
     assert main(["--profiles", "p", "--index", str(index), "--samples", str(samples)]) == 0
-    assert events[0] == ("ensure_bm25_index", "default")
-    assert [kind for kind, _ in events].count("ensure_bm25_index") == 1
+    assert events[0] == ("repair_bm25_index", "default")
+    assert [kind for kind, _ in events].count("repair_bm25_index") == 1
     assert len(events) > 1
 
 
@@ -414,7 +405,7 @@ def test_prune_is_skipped_when_an_index_row_has_no_local_file(
 ) -> None:
     index, samples = _case(tmp_path)  # doc-b was never downloaded
     pruned: list[tuple[object, ...]] = []
-    monkeypatch.setattr(cli, "get_settings", _FakeSettings)
+    monkeypatch.setattr(cli, "get_settings", FakeSettings)
     monkeypatch.setattr(cli, "Container", _fake_container([], pruned))
     assert main(_prune_argv(index, samples)) == 0
     assert pruned == []
@@ -428,7 +419,7 @@ def test_prune_gets_the_loaded_profiles_without_the_default_one(
     (samples / "ncg").mkdir()
     (samples / "ncg" / "doc-b.pdf").write_bytes(b"%PDF B")  # every row now has its file
     pruned: list[tuple[object, ...]] = []
-    monkeypatch.setattr(cli, "get_settings", _FakeSettings)
+    monkeypatch.setattr(cli, "get_settings", FakeSettings)
     monkeypatch.setattr(cli, "Container", _fake_container([object(), object()], pruned))
     assert main(_prune_argv(index, samples)) == 0
     ((tenant, names, outcomes),) = pruned
@@ -450,7 +441,7 @@ def test_an_unreadable_index_line_skips_prune_end_to_end(
     index.write_text(index.read_text("utf-8") + "{not json\n", encoding="utf-8")
 
     pruned: list[tuple[object, ...]] = []
-    monkeypatch.setattr(cli, "get_settings", _FakeSettings)
+    monkeypatch.setattr(cli, "get_settings", FakeSettings)
     monkeypatch.setattr(cli, "Container", _fake_container(None, pruned))
     assert main(_prune_argv(index, samples)) == 1
     out = capsys.readouterr().out

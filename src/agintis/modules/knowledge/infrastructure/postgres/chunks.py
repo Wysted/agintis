@@ -230,7 +230,7 @@ class PgChunkRepository(ChunkRepository):
         tenant_id = ensure_single_tenant(chunks_)
         if tenant_id is None:
             return
-        await self.ensure_bm25_index(tenant_id)
+        await self._ensure_bm25_index(tenant_id)
         rows: list[dict[str, Any]] = [
             {
                 "id": chunk.id,
@@ -253,7 +253,22 @@ class PgChunkRepository(ChunkRepository):
                 raise DocumentNotFoundError(chunks_[0].document_id) from exc
             raise
 
-    async def ensure_bm25_index(self, tenant_id: TenantId) -> None:
+    async def repair_bm25_index(self, tenant_id: TenantId) -> None:
+        """Build the BM25 index of a tenant that already has chunks but lacks it.
+
+        A tenant without chunks is left alone: a wrong tenant id or an empty run must not cost a
+        full-table CREATE INDEX nor leave an orphan index (`add_many` builds a new tenant's).
+        """
+        if not self.creates_bm25_indexes:
+            return
+        params = {"index": bm25_index_name(tenant_id), "tenant": tenant_id}
+        async with UnitOfWork(self._factory) as uow:
+            found = await uow.session.execute(_BM25_INDEX_AND_CHUNKS, params)
+            state = found.mappings().one()
+        if state["has_chunks"] and not state["has_index"]:
+            await self._ensure_bm25_index(tenant_id)
+
+    async def _ensure_bm25_index(self, tenant_id: TenantId) -> None:
         """Create the tenant's BM25 index (see `tables.bm25_index_name`) when it is missing.
 
         Only with `bm25_indexes` set, and a no-op without pg_textsearch, so every other retrieval
