@@ -870,8 +870,8 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         if BM25_HYBRID_RETRIEVAL_MODE in modes:
             try:
                 await container.require_pg_textsearch()
-                if args.mode == ALL:  # also a tenant ingested while no profile used bm25_hybrid
-                    await container.chunks.search_bm25(TenantId(args.tenant), "probe", None, 1)
+                # A tenant without its index fails here, before any model call.
+                await container.chunks.search_bm25(TenantId(args.tenant), "probe", None, 1)
             except (StartupError, TextSearchConfigError) as exc:
                 if args.mode != ALL:
                     raise

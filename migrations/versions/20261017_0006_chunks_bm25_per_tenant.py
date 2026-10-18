@@ -63,9 +63,8 @@ BEGIN
             RETURN;
         END;
     END IF;
-    -- shortcut: N full scans under one SHARE lock, writes blocked for the whole migration;
-    -- build per tenant outside the migration (CONCURRENTLY) when chunks is large or tenants
-    -- are many.
+    -- shortcut: N full scans under one SHARE lock blocking writes for the whole migration,
+    -- build per tenant with CONCURRENTLY outside it when chunks is large or tenants are many.
     -- An array, not a query loop: an open cursor on chunks blocks CREATE INDEX on it.
     FOREACH tenant IN ARRAY ARRAY(SELECT DISTINCT tenant_id FROM chunks) LOOP
         EXECUTE format(

@@ -351,10 +351,21 @@ class _FakeProfiles:
         return [_Named(DEFAULT_PROFILE.name), _Named("guide"), _Named("ref")]
 
 
-def _fake_container(prune_result: list[object] | None, calls: list[tuple[object, ...]]) -> type:
+def _fake_container(
+    prune_result: list[object] | None,
+    calls: list[tuple[object, ...]],
+    events: list[tuple[str, object]] | None = None,
+) -> type:
+    seen = [] if events is None else events
+
+    class FakeChunks:
+        async def ensure_bm25_index(self, tenant: object) -> None:
+            seen.append(("ensure_bm25_index", tenant))
+
     class FakeBatch:
         async def stream(self, tenant: object, items: object, **kw: object):  # type: ignore[no-untyped-def]
             for item in items:  # type: ignore[attr-defined]
+                seen.append(("item", item))
                 yield item if isinstance(item, BatchOutcome) else BatchOutcome(item.uri, "indexed")
 
         async def prune(self, *args: object) -> list[object] | None:
@@ -364,6 +375,7 @@ def _fake_container(prune_result: list[object] | None, calls: list[tuple[object,
     class FakeContainer:
         ingest_batch = FakeBatch()
         profiles = _FakeProfiles()
+        chunks = FakeChunks()
 
         @classmethod
         def build(cls, settings: object, *, for_ingest: bool) -> "FakeContainer":
@@ -381,6 +393,20 @@ def _fake_container(prune_result: list[object] | None, calls: list[tuple[object,
 
 def _prune_argv(index: Path, samples: Path) -> list[str]:
     return ["--profiles", "p", "--index", str(index), "--samples", str(samples), "--prune"]
+
+
+def test_the_tenants_bm25_index_is_ensured_once_before_the_first_item(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unchanged documents never reach add_many: the run itself builds a missing index."""
+    index, samples = _case(tmp_path)
+    events: list[tuple[str, object]] = []
+    monkeypatch.setattr(cli, "get_settings", _FakeSettings)
+    monkeypatch.setattr(cli, "Container", _fake_container(None, [], events))
+    assert main(["--profiles", "p", "--index", str(index), "--samples", str(samples)]) == 0
+    assert events[0] == ("ensure_bm25_index", "default")
+    assert [kind for kind, _ in events].count("ensure_bm25_index") == 1
+    assert len(events) > 1
 
 
 def test_prune_is_skipped_when_an_index_row_has_no_local_file(

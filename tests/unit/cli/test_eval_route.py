@@ -310,7 +310,8 @@ class _RunHelpers:
 
 
 class TestModeSets(_RunHelpers):
-    """`all` (the default) adds bm25_hybrid only where its index exists; explicit fails."""
+    """`all` (the default) adds bm25_hybrid only where pg_textsearch and the tenant index exist;
+    an explicit bm25_hybrid fails instead."""
 
     async def _container(self, *, bm25: bool) -> Container:
         container = await _container(ChatModels(None))
@@ -322,7 +323,7 @@ class TestModeSets(_RunHelpers):
         container.require_pg_textsearch = require_pg_textsearch  # type: ignore[method-assign]
         return container
 
-    async def test_all_runs_every_mode_where_the_bm25_index_exists(
+    async def test_all_runs_every_mode_where_pg_textsearch_is_loaded(
         self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
     ) -> None:
         self._patch(monkeypatch, await self._container(bm25=True), llm=False)
@@ -334,7 +335,7 @@ class TestModeSets(_RunHelpers):
         ]
         assert "skipped_modes" not in report
 
-    async def test_all_skips_bm25_hybrid_without_the_index_and_says_so(
+    async def test_all_skips_bm25_hybrid_without_pg_textsearch_and_says_so(
         self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
     ) -> None:
         self._patch(monkeypatch, await self._container(bm25=False), llm=False)
@@ -357,14 +358,27 @@ class TestModeSets(_RunHelpers):
         assert list(report["modes"]) == [DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE]
         assert "no BM25 index" in report["skipped_modes"][BM25_HYBRID_RETRIEVAL_MODE]
 
-    async def test_an_explicit_bm25_hybrid_fails_without_the_index(
+    async def test_an_explicit_bm25_hybrid_fails_early_when_the_tenant_has_no_bm25_index(
+        self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
+    ) -> None:
+        container = await self._container(bm25=True)
+
+        async def unindexed(*args: object, **kwargs: object) -> list[ScoredChunk]:
+            raise TextSearchConfigError("Tenant 'default' has chunks but no BM25 index")
+
+        monkeypatch.setattr(container.chunks, "search_bm25", unindexed)
+        self._patch(monkeypatch, container, llm=False)
+        with pytest.raises(TextSearchConfigError, match="no BM25 index"):
+            await eval_cli.run(self._args(questions_file, mode=BM25_HYBRID_RETRIEVAL_MODE))
+
+    async def test_an_explicit_bm25_hybrid_fails_without_pg_textsearch(
         self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
     ) -> None:
         self._patch(monkeypatch, await self._container(bm25=False), llm=False)
         with pytest.raises(StartupError, match="pg_textsearch"):
             await eval_cli.run(self._args(questions_file, mode=BM25_HYBRID_RETRIEVAL_MODE))
 
-    async def test_both_never_needs_the_index(
+    async def test_both_never_needs_pg_textsearch(
         self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
     ) -> None:
         self._patch(monkeypatch, await self._container(bm25=False), llm=False)

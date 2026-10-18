@@ -38,7 +38,6 @@ from agintis.modules.knowledge.domain import (
     ensure_single_tenant,
 )
 from agintis.modules.knowledge.infrastructure.postgres.fields import chunk_fields
-from agintis.modules.knowledge.infrastructure.postgres.indexes import DEFAULT_LOCK_TIMEOUT_SECONDS
 from agintis.modules.knowledge.infrastructure.postgres.tables import (
     DOCUMENT_FK,
     TEXT_SEARCH_CONFIG,
@@ -119,6 +118,11 @@ _BM25_SKIP_REASON = "agintis.bm25_skip_reason"
 # The build may outlast a role's default statement_timeout (a timeout would fail every retry),
 # but waiting for the SHARE lock stays bounded: a queued lock request blocks every later writer
 # of chunks. Past `lock_timeout` the ingest fails with a retryable OperationalError.
+# shortcut: lock_timeout also bounds the wait on a concurrent first build of the same tenant's
+# index (the pg_class unique check) and collides with `cli.indexes --apply` (CREATE INDEX
+# CONCURRENTLY holds SHARE UPDATE EXCLUSIVE); either way the ingest fails and recovery is
+# re-running it. Upgrade to an advisory lock per tenant, or to CONCURRENTLY, if that recurs.
+BM25_BUILD_LOCK_TIMEOUT_SECONDS = 30.0
 _BUILD_TIMEOUTS = text(
     "SELECT set_config('statement_timeout', '0', true), "
     "set_config('lock_timeout', :lock_timeout, true)"
@@ -196,7 +200,7 @@ class PgChunkRepository(ChunkRepository):
         text_search_config: str = TEXT_SEARCH_CONFIG,
         search_timeout_ms: int = DEFAULT_SEARCH_TIMEOUT_MS,
         bm25_indexes: bool = False,
-        bm25_lock_timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
+        bm25_lock_timeout_seconds: float = BM25_BUILD_LOCK_TIMEOUT_SECONDS,
     ) -> None:
         """`bm25_indexes`: create a tenant's BM25 index at its first ingest (set when a profile
         uses `bm25_hybrid`; otherwise ingest never pays for the index build), waiting at most
@@ -226,8 +230,7 @@ class PgChunkRepository(ChunkRepository):
         tenant_id = ensure_single_tenant(chunks_)
         if tenant_id is None:
             return
-        if self.creates_bm25_indexes:
-            await self._ensure_bm25_index(tenant_id)
+        await self.ensure_bm25_index(tenant_id)
         rows: list[dict[str, Any]] = [
             {
                 "id": chunk.id,
@@ -250,13 +253,16 @@ class PgChunkRepository(ChunkRepository):
                 raise DocumentNotFoundError(chunks_[0].document_id) from exc
             raise
 
-    async def _ensure_bm25_index(self, tenant_id: TenantId) -> None:
-        """Create the tenant's BM25 index (see `tables.bm25_index_name`) before its first chunks.
+    async def ensure_bm25_index(self, tenant_id: TenantId) -> None:
+        """Create the tenant's BM25 index (see `tables.bm25_index_name`) when it is missing.
 
-        A no-op without pg_textsearch, so every other retrieval mode keeps working on any
-        Postgres. Checked by name first: once the index exists no lock is taken. Its own short
-        transaction, before the insert: CREATE INDEX blocks writes to chunks while it runs.
+        Only with `bm25_indexes` set, and a no-op without pg_textsearch, so every other retrieval
+        mode keeps working on any Postgres. Checked by name first: once the index exists no lock
+        is taken. Its own short transaction, before any insert: CREATE INDEX blocks writes to
+        chunks while it runs.
         """
+        if not self.creates_bm25_indexes:
+            return
         index = bm25_index_name(tenant_id)
         async with UnitOfWork(self._factory) as uow:
             found = await uow.session.execute(
@@ -465,8 +471,9 @@ class PgChunkRepository(ChunkRepository):
                     "a profile used bm25_hybrid or pg_textsearch was loaded, or by a role that "
                     "does not own chunks): as the owner of chunks run `CREATE INDEX IF NOT "
                     f"EXISTS {index} ON chunks USING bm25 (text) WITH (text_config = "
-                    f"'{TEXT_SEARCH_CONFIG}') WHERE tenant_id = '{quoted}'`, or re-ingest a "
-                    "changed document while a profile uses bm25_hybrid"
+                    f"'{TEXT_SEARCH_CONFIG}') WHERE tenant_id = '{quoted}'`, or re-run the "
+                    "ingest of this tenant as the owner of chunks while a profile uses "
+                    "bm25_hybrid"
                 ) from exc
             else:
                 return []

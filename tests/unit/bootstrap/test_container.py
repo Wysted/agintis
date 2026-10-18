@@ -393,7 +393,7 @@ async def test_a_text_search_config_that_does_not_match_tsv_stops_the_boot(
             pass
 
 
-async def test_the_bm25_index_is_checked_only_when_a_profile_uses_bm25_hybrid(
+async def test_pg_textsearch_is_checked_only_when_a_profile_uses_bm25_hybrid(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def database_ok(engine: object, **kwargs: Any) -> str:

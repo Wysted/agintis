@@ -168,6 +168,8 @@ async def run(args: argparse.Namespace, emit: Callable[[BatchOutcome], None]) ->
     items = local_items(args.index, samples, args.limit, missing)
     async with Container.build(settings, for_ingest=True) as container:
         tenant = TenantId(args.tenant)
+        # Unchanged documents are skipped before add_many: a missing BM25 index is built here.
+        await container.chunks.ensure_bm25_index(tenant)
         outcomes: list[BatchOutcome] = []
         async for outcome in container.ingest_batch.stream(
             tenant, items, cleanup_rerouted=args.cleanup_rerouted

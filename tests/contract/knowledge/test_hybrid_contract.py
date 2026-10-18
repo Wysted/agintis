@@ -14,6 +14,7 @@ import secrets
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -24,6 +25,8 @@ from sqlalchemy.engine import URL
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from agintis.cli import ingest as ingest_cli
+from agintis.modules.knowledge.api import BatchOutcome
 from agintis.modules.knowledge.domain import (
     Chunk,
     Document,
@@ -44,6 +47,7 @@ from tests.conftest import skip_or_fail
 from tests.contract.knowledge.conftest import Repos
 from tests.fakes.knowledge import InMemoryChunkRepository, InMemoryDocumentRepository
 from tests.support.postgres import BM25_INDEXES_SQL, truncate_all
+from tests.unit.cli.test_local_case import _FakeSettings
 
 A = TenantId("tenant-a")
 B = TenantId("tenant-b")
@@ -487,10 +491,54 @@ class TestBm25TenantIndexes:
         with pytest.raises(TextSearchConfigError, match="no BM25 index") as info:
             await repos.chunks.search_bm25(tenant, QUERY, None, 10)
         assert "downgrade" not in str(info.value)  # never an outage as the remedy
+        assert "re-run the ingest of this tenant as the owner of chunks" in str(info.value)
         # The statement in the message is the fix, as written.
         (statement,) = re.findall(r"`(CREATE INDEX[^`]+)`", str(info.value))
         async with engine.begin() as conn:
             await conn.exec_driver_sql(statement.replace("%", "%%"))
+        assert len(await repos.chunks.search_bm25(tenant, QUERY, None, 10)) == 1
+
+    async def test_an_ingest_run_of_unchanged_documents_builds_a_missing_index(
+        self,
+        pg_bm25: tuple[Repos, AsyncEngine],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """The remedy the error names: re-running the ingest, even with nothing to re-ingest."""
+        repos, engine = pg_bm25
+        tenant = TenantId(f"t-{uuid4().hex}")
+        await repos.documents.save(_doc(tenant, f"{tenant}-d"))
+        await repos.chunks.add_many([_chunk(tenant, f"{tenant}-d", "c1", EXACT_TEXT)], [NEAR])
+        async with engine.begin() as conn:  # e.g. ingested while no profile used bm25_hybrid
+            await conn.execute(text(f'DROP INDEX "{bm25_index_name(tenant)}"'))
+
+        class EveryDocumentUnchanged:
+            async def stream(self, tenant: object, items: Any, **kw: object) -> Any:
+                for item in items:
+                    yield BatchOutcome(getattr(item, "uri", "?"), "skipped")
+
+        class IngestContainer:
+            ingest_batch = EveryDocumentUnchanged()
+            chunks = repos.chunks
+
+            @classmethod
+            def build(cls, settings: object, *, for_ingest: bool) -> "IngestContainer":
+                return cls()
+
+            async def __aenter__(self) -> "IngestContainer":
+                return self
+
+            async def __aexit__(self, *exc: object) -> None:
+                return None
+
+        index = tmp_path / "index" / "documents.jsonl"
+        index.parent.mkdir()
+        index.write_text('{"id": "d", "url": "https://example.test/d"}\n', encoding="utf-8")
+        monkeypatch.setattr(ingest_cli, "get_settings", _FakeSettings)
+        monkeypatch.setattr(ingest_cli, "Container", IngestContainer)
+        argv = ["--profiles", "p", "--index", str(index), "--tenant", tenant]
+        await ingest_cli.run(ingest_cli.build_parser().parse_args(argv), lambda outcome: None)
+        assert bm25_index_name(tenant) in await _bm25_indexes(engine)
         assert len(await repos.chunks.search_bm25(tenant, QUERY, None, 10)) == 1
 
     async def test_the_index_build_waits_for_the_lock_on_chunks_only_so_long(
