@@ -8,7 +8,9 @@ index at its first ingest.
 """
 
 import asyncio
+import logging
 import re
+import secrets
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -16,6 +18,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from psycopg import errors as pg_errors
 from sqlalchemy import event, text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import DBAPIError
@@ -51,6 +54,7 @@ QUERY = "afiliación automática"
 EXACT_TEXT = "El inicio de labores genera la afiliación automática al sistema"
 OTHER_TEXT = "Las cotizaciones se pagan mensualmente"
 SCHEMA = (MetadataField("area", "str", filterable=True),)
+WRITER_ROLE = "agintis_test_bm25_writer"
 
 
 def _doc(tenant: TenantId, doc_id: str, status: DocumentStatus = DocumentStatus.READY) -> Document:
@@ -178,7 +182,7 @@ async def _planner_forced(url: URL, options: str) -> AsyncIterator[tuple[Repos, 
     try:
         factory = create_session_factory(engine)
         await truncate_all(factory)
-        repos = Repos(PgDocumentRepository(factory), PgChunkRepository(factory))
+        repos = Repos(PgDocumentRepository(factory), PgChunkRepository(factory, bm25_indexes=True))
         try:
             await repos.chunks.search_bm25(A, QUERY, None, k=1)
         except DBAPIError as exc:  # no pg_textsearch: an old pgvector-only server
@@ -466,6 +470,17 @@ class TestBm25TenantIndexes:
         assert after.chunk.id == target.id
         assert after.score == pytest.approx(before.score)
 
+        # Control: the same term made common in b ITSELF does lower its weight there.
+        await repos.documents.save(_doc(b, f"{b}-d2"))
+        own = [
+            Chunk(ChunkId(f"{b}-{n}"), DocumentId(f"{b}-d2"), b, "p", n, f"afiliación {OTHER_TEXT}")
+            for n in range(30)
+        ]
+        await repos.chunks.add_many(own, [NEAR] * len(own))
+        hits = await repos.chunks.search_bm25(b, "afiliación", None, 50)
+        (diluted,) = [h for h in hits if h.chunk.id == target.id]
+        assert diluted.score < before.score
+
     async def test_a_tenant_with_chunks_but_no_index_says_how_to_fix_it(
         self, pg_bm25: tuple[Repos, AsyncEngine]
     ) -> None:
@@ -477,6 +492,67 @@ class TestBm25TenantIndexes:
             await conn.execute(text(f'DROP INDEX "{bm25_index_name(tenant)}"'))
         with pytest.raises(TextSearchConfigError, match=r"no BM25 index.*alembic downgrade 0005"):
             await repos.chunks.search_bm25(tenant, QUERY, None, 10)
+
+    async def test_a_search_racing_the_first_ingest_retries_once(
+        self, pg_bm25: tuple[Repos, AsyncEngine], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The index was missing at plan time but exists by the follow-up check."""
+        repos, _ = pg_bm25
+        tenant = TenantId(f"t-{uuid4().hex}")
+        await repos.documents.save(_doc(tenant, f"{tenant}-d"))
+        await repos.chunks.add_many([_chunk(tenant, f"{tenant}-d", "c1", EXACT_TEXT)], [NEAR])
+        chunks = repos.chunks
+        assert isinstance(chunks, PgChunkRepository)
+        real = chunks._bm25_rows
+        calls: list[object] = []
+
+        async def first_misses(stmt: Any) -> Any:
+            calls.append(stmt)
+            if len(calls) == 1:
+                raise DBAPIError("stmt", None, pg_errors.UndefinedObject("index does not exist"))
+            return await real(stmt)
+
+        monkeypatch.setattr(chunks, "_bm25_rows", first_misses)
+        assert len(await chunks.search_bm25(tenant, QUERY, None, 10)) == 1
+        assert len(calls) == 2
+
+    async def test_ingest_without_a_bm25_profile_creates_no_index(
+        self, pg_bm25: tuple[Repos, AsyncEngine]
+    ) -> None:
+        repos, engine = pg_bm25
+        plain = PgChunkRepository(create_session_factory(engine))  # no profile uses bm25_hybrid
+        tenant = TenantId(f"t-{uuid4().hex}")
+        await repos.documents.save(_doc(tenant, f"{tenant}-d"))
+        await plain.add_many([_chunk(tenant, f"{tenant}-d", "c1", EXACT_TEXT)], [NEAR])
+        assert bm25_index_name(tenant) not in await _bm25_indexes(engine)
+
+    async def test_a_role_that_does_not_own_chunks_ingests_and_says_why_there_is_no_index(
+        self,
+        pg_bm25: tuple[Repos, AsyncEngine],
+        pg_test_url: URL,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        repos, engine = pg_bm25
+        password = secrets.token_hex(8)
+        async with engine.begin() as conn:
+            await conn.execute(text(f"DROP ROLE IF EXISTS {WRITER_ROLE}"))
+            await conn.execute(text(f"CREATE ROLE {WRITER_ROLE} LOGIN PASSWORD '{password}'"))
+            await conn.execute(text(f"GRANT SELECT, INSERT ON chunks, documents TO {WRITER_ROLE}"))
+        writer_url = pg_test_url.set(username=WRITER_ROLE, password=password)
+        writer = create_async_engine(writer_url.render_as_string(hide_password=False))
+        try:
+            chunks = PgChunkRepository(create_session_factory(writer), bm25_indexes=True)
+            tenant = TenantId(f"t-{uuid4().hex}")
+            await repos.documents.save(_doc(tenant, f"{tenant}-d"))
+            with caplog.at_level(logging.WARNING):
+                await chunks.add_many([_chunk(tenant, f"{tenant}-d", "c1", EXACT_TEXT)], [NEAR])
+            assert f"role {WRITER_ROLE} does not own chunks" in caplog.text
+            assert bm25_index_name(tenant) not in await _bm25_indexes(engine)
+        finally:
+            await writer.dispose()
+            async with engine.begin() as conn:
+                await conn.execute(text(f"DROP OWNED BY {WRITER_ROLE}"))
+                await conn.execute(text(f"DROP ROLE {WRITER_ROLE}"))
 
 
 class TestHybridSearch:

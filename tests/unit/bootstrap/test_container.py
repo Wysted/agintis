@@ -139,6 +139,20 @@ def test_build_loads_yaml_profiles_next_to_the_default(tmp_path: Path) -> None:
     assert container.profiles.get("legal").cleaners[0].key == "normalize_whitespace"
 
 
+def test_ingest_creates_bm25_indexes_only_when_a_profile_uses_bm25_hybrid(tmp_path: Path) -> None:
+    def creates_indexes(settings: Settings) -> bool:
+        chunks = Container.build(settings).chunks
+        assert isinstance(chunks, PgChunkRepository)
+        return chunks.creates_bm25_indexes
+
+    assert not creates_indexes(make_settings())
+    (tmp_path / "bm.yaml").write_text(
+        "key: bm\ntop_k: 4\nchunk_max_tokens: 300\nparser_key: simple\n"
+        "chunker_key: structured\nretrieval_mode: bm25_hybrid\n"
+    )
+    assert creates_indexes(make_settings(knowledge={"profiles_dir": tmp_path}))
+
+
 @pytest.mark.parametrize(
     ("body", "error"),
     [

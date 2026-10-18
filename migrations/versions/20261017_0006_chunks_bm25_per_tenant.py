@@ -55,7 +55,6 @@ BEGIN
             RETURN;
         END;
     END IF;
-    DROP INDEX IF EXISTS ix_chunks_text_bm25;
     -- An array, not a query loop: an open cursor on chunks blocks CREATE INDEX on it.
     FOREACH tenant IN ARRAY ARRAY(SELECT DISTINCT tenant_id FROM chunks) LOOP
         EXECUTE format(
@@ -64,6 +63,8 @@ BEGIN
             'ix_chunks_bm25_' || left(encode(sha256(convert_to(tenant, 'UTF8')), 'hex'), 16),
             'public.es_unaccent', tenant);
     END LOOP;
+    -- Last: ACCESS EXCLUSIVE on chunks only for this brief drop, not for the builds above.
+    DROP INDEX IF EXISTS ix_chunks_text_bm25;
 END
 $$
 """

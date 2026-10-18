@@ -272,6 +272,9 @@ class Container:
             max_scan_tuples=db.hnsw_max_scan_tuples,
             text_search_config=knowledge.text_search_config,
             search_timeout_ms=db.search_timeout_ms,
+            bm25_indexes=any(
+                p.retrieval_mode == BM25_HYBRID_RETRIEVAL_MODE for p in profiles.all()
+            ),
         )
         ingest_lock = PgIngestLock(
             lock_engine,
