@@ -464,7 +464,9 @@ def test_a_lone_surrogate_in_model_output_is_scrubbed_and_never_crashes_the_hash
     assert len(bad.answer_sha256) == 64  # surrogatepass: no UnicodeEncodeError
 
     state = {"answer": "Respuesta rota \ud83d [1].", "sources": [], "messages": []}
-    record = record_from_state(state, id="x", question="q", agent="a", limits=SourceLimits())
+    record = record_from_state(
+        state, id="x", question="q", agent="a", limits=SourceLimits(), citations="inline"
+    )
     assert "\ufffd" in record.answer
     assert "\ud83d" not in record.answer
     record.answer.encode("utf-8")  # writable
@@ -651,13 +653,15 @@ def test_a_refusal_with_a_code_bracket_is_still_a_refusal() -> None:
     assert not looks_like_refusal(answer + " [1]")
 
 
-def test_the_citation_gate_is_skipped_for_an_agent_without_citations() -> None:
-    answer = "No encontré información sobre eso en las fuentes [1]."
-    assert not looks_like_refusal(answer)
-    assert looks_like_refusal(answer, "none")
-    assert is_refusal(replace(make_record(answer, scope=None), citations="none"))
-    # the other gates still apply
-    assert not looks_like_refusal("El plazo es de 24 meses.", "none")
+def test_an_agent_without_citations_refuses_only_when_the_answer_opens_with_it() -> None:
+    partial = "Se renueva en el mostrador con tu carnet; no hay información sobre el costo."
+    assert looks_like_refusal(partial)  # inline: an uncited answer is suspect
+    assert not looks_like_refusal(partial, "none")
+    refusal = "  No encontré información sobre eso en las fuentes."
+    assert looks_like_refusal(refusal, "none")
+    assert is_refusal(replace(make_record(refusal, scope=None), citations="none"))
+    # the citation gate still applies
+    assert not looks_like_refusal(refusal + " [1]", "none")
 
 
 def test_precheck_and_enumeration_see_the_same_numbers() -> None:

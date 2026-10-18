@@ -205,8 +205,7 @@ def _model_signal(results: Sequence[JudgeResult]) -> dict[str, Any] | None:
 
 def _model_refusals(results: Sequence[JudgeResult]) -> dict[str, int] | None:
     """Faithfulness `model_refusal` results (n/a): how many cite a source and how many list
-    claims with no citation, which NO judge checks (`unchecked_claims`; not counted for a
-    `citations: none` agent, whose answers are uncited by design). None when there are none
+    claims with no citation, which NO judge checks (`unchecked_claims`). None when there are none
     (answer_relevance also codes `model_refusal` but carries no claims, so it is skipped)."""
     flagged = [
         r.details for r in results if r.code == "model_refusal" and "claims_listed" in r.details
@@ -217,11 +216,7 @@ def _model_refusals(results: Sequence[JudgeResult]) -> dict[str, int] | None:
         "total": len(flagged),
         "cited_refusal": sum(1 for d in flagged if d["cited_refusal"]),
         "unchecked_claims": sum(
-            1
-            for d in flagged
-            if d["claims_listed"] > 0
-            and not d["cited_refusal"]
-            and not d.get("citations_disabled")  # absent in results judged before the option
+            1 for d in flagged if d["claims_listed"] > 0 and not d["cited_refusal"]
         ),
     }
 

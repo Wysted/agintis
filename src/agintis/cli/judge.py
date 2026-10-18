@@ -18,7 +18,8 @@ the dump. Judges (all binary, `verdict` true = good):
   `--judges` subset without them it stays `deterministic`. The pass rate the heuristic alone would
   give is reported next to it (`refusal_correctness_heuristic` in the aggregate).
 
-A judge that does not apply reports `not_applicable` with a counted reason (no citations, a refusal
+A judge that does not apply reports `not_applicable` with a counted reason (no citations, or
+`citations_disabled` when an agent with `citations: none` answered without [n] markers; a refusal
 - by the agent's scope verdict `out` or reported by the judge model itself -, no expected scope)
 and is left out of the pass rate. The judge model is the LLM profile `EVAL_JUDGE_PROFILE`
 (`--profile` overrides it; it has no default: name one, `default` = the `LLM_*` analyzer model is

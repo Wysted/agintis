@@ -471,18 +471,32 @@ async def test_the_aggregate_counts_model_refusals_with_uncited_claims_as_unchec
     }
 
 
-async def test_uncited_refusal_claims_of_an_agent_without_citations_are_not_unchecked() -> None:
-    uncited = replace(
+async def test_an_uncited_refusal_of_an_agent_without_citations_has_its_claims_checked() -> None:
+    # with `citations: none` no citation_support would see the fabricated 30 days
+    fabricated = replace(
         make_record("No lo sé; el plazo es de 30 días.", expected_scope="out"), citations="none"
     )
-    judges = build_judges(_split_model(None, True, claim_list=(True,)), LABEL)
+    out = FaithfulnessOutput(
+        claims=[claim("contradicted", claim_quote="el plazo es de 30 días", source_ns=[1],
+                      evidence_quote="El plazo es de 24 meses.")],
+        is_refusal=True,
+    )  # fmt: skip
+    judges = build_judges(
+        ScriptedChatModel(responder=lambda _s, _m: out), LABEL, [JudgeName.FAITHFULNESS]
+    )
+    plain = replace(make_record("No lo sé.", expected_scope="out"), citations="none")
+    plain_judges = build_judges(_split_model(None, True), LABEL, [JudgeName.FAITHFULNESS])
 
-    stats = aggregate([await judge_record(uncited, judges)], [JudgeName.FAITHFULNESS])
+    judgments = [await judge_record(fabricated, judges), await judge_record(plain, plain_judges)]
 
+    faith = judgments[0][JudgeName.FAITHFULNESS]
+    assert (faith.status, faith.verdict) == (JudgeStatus.OK, False)
+    assert faith.details["model_is_refusal"] is True
+    assert faith.details["unsupported"] == 1
+    stats = aggregate(judgments, [JudgeName.FAITHFULNESS])
+    # a refusal listing no claims stays n/a
     assert stats["faithfulness"]["model_refusals"] == {
         "total": 1,
         "cited_refusal": 0,
         "unchecked_claims": 0,
     }
-    reasons = aggregate([await judge_record(uncited, judges)], [JudgeName.CITATION_SUPPORT])
-    assert reasons["citation_support"]["reasons"] == {"citations_disabled": 1}

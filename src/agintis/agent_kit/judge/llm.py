@@ -478,7 +478,9 @@ class FaithfulnessJudge:
     `claims_listed` in the details count them). Cited facts are still verified by
     `citation_support` (it runs on any answer with `[n]` markers, independently of this flag);
     UNCITED facts of a flagged refusal are checked by no judge, only counted (the aggregate's
-    `model_refusals.unchecked_claims`). The model and heuristic signals are both recorded
+    `model_refusals.unchecked_claims`). For a `citations: none` agent a flagged refusal that
+    lists claims is judged like any answer (`model_is_refusal` stays in the details): nothing
+    else would check them. The model and heuristic signals are both recorded
     (`refusal_signals`; the heuristic says "not a refusal" for any cited answer, so
     `model_only` counts every cited v8 refusal: not a judge-error signal). An answer
     with sources missing is still judged (the claims cannot be supported by no sources); a model
@@ -508,7 +510,9 @@ class FaithfulnessJudge:
             ],
         )
         signals = refusal_signals(out.is_refusal, record)
-        if out.is_refusal:
+        # With `citations: none` no judge would check the claims of a flagged refusal (there is
+        # no citation_support), so they are judged here; the flag stays in the details.
+        if out.is_refusal and (record.citations == "inline" or not out.claims):
             # v8: a refusal may cite or list adjacent-topic facts; citation_support checks those.
             return JudgeResult.not_applicable(
                 self.name,
@@ -521,7 +525,6 @@ class FaithfulnessJudge:
                     "retries": retries,
                     "cited_refusal": bool(citation_numbers(record.answer)),
                     "claims_listed": len(out.claims),
-                    "citations_disabled": record.citations == "none",
                 },
             )
         if not out.claims:
@@ -574,8 +577,9 @@ class FaithfulnessJudge:
 class CitationSupportJudge:
     """ALCE-style: does the source set a sentence cites support that sentence?
 
-    Order of business: an agent with `citations: none` -> not applicable (`citations_disabled`);
-    no `[n]` marker -> not applicable; a marker pointing to a source that does
+    Order of business: no `[n]` marker -> not applicable (`citations_disabled` for an agent with
+    `citations: none`, else `no_citations`; markers it emits anyway, e.g. from a custom
+    synthesize prompt, are judged as usual); a marker pointing to a source that does
     not exist -> deterministic failure (no model call); otherwise the CODE enumerates the cited
     sentences (`cited_sentences`: the same splitter the precheck uses) and the model judges
     exactly that numbered list, each next to the sources IT cites (several markers = the sources
@@ -603,11 +607,11 @@ class CitationSupportJudge:
         self._prompt = prompt
 
     async def judge(self, record: AnswerRecord) -> JudgeResult:
-        if record.citations == "none":
+        sentences = cited_sentences(record.answer)
+        if not sentences and record.citations == "none":
             return JudgeResult.not_applicable(
                 self.name, "the agent answers without citations", "citations_disabled"
             )
-        sentences = cited_sentences(record.answer)
         if not sentences:
             return JudgeResult.not_applicable(
                 self.name, "the answer carries no citations", "no_citations"

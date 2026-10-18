@@ -43,7 +43,7 @@ def record_from_state(
     expected_scope: ExpectedScope | None = None,
     models: Mapping[str, str] | None = None,
     meta: Mapping[str, Any] | None = None,
-    citations: CitationStyle = "inline",
+    citations: CitationStyle,
 ) -> AnswerRecord:
     """The record of one finished run.
 

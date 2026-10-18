@@ -139,7 +139,7 @@ async def answer_question(
     limits: SourceLimits,
     models: Mapping[str, str],
     meta: Mapping[str, Any],
-    citations: CitationStyle = "inline",
+    citations: CitationStyle,
 ) -> AnswerRecord:
     """One fresh turn of the agent; a failure becomes a record with `error` (never raises)."""
     config: RunnableConfig = {
@@ -209,7 +209,7 @@ async def dump_answers(
     limits: SourceLimits,
     models: Mapping[str, str],
     meta: Mapping[str, Any],
-    citations: CitationStyle = "inline",
+    citations: CitationStyle,
     concurrency: int = DEFAULT_CONCURRENCY,
     sink: Callable[[AnswerRecord], None] | None = None,
 ) -> list[AnswerRecord]:

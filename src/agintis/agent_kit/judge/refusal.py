@@ -5,11 +5,11 @@ Two signals, deterministic and cheap:
    turns report no scope): the `refuse` node answered with its fixed message (no retrieval, no
    synthesis), so it IS a refusal whatever the text says.
 2. Otherwise a text heuristic over the answer: no `[n]` citation (the synthesis prompt forbids
-   citing when it does not know; skipped for a `citations: none` agent), at most
-   `MAX_REFUSAL_CHARS` characters (a long answer with a caveat sentence is an answer, not a
-   blanket refusal) and a match of one of the
+   citing when it does not know), at most `MAX_REFUSAL_CHARS` characters (a long answer with a
+   caveat sentence is an answer, not a blanket refusal) and a match of one of the
    `REFUSAL_PATTERNS` (Spanish "I don't know / I can't answer / it is not in the sources" forms,
-   compared lowercase and without accents, with word boundaries).
+   compared lowercase and without accents, with word boundaries; for a `citations: none` agent
+   the match must start the answer, since a missing marker says nothing there).
 
 Where the patterns come from, honestly: the synthesis prompt's contract ("say you do not know",
 no citations on a refusal), the fixed out-of-scope message style of a case's agent ("solo puedo
@@ -123,16 +123,18 @@ def _reads_as_missing(normalized: str) -> bool:
 
 
 def looks_like_refusal(answer: str, citations: CitationStyle = "inline") -> bool:
-    """The text heuristic alone (signal 2). The citation gate only applies to `inline` agents:
-    with `citations: none` no answer carries markers, so their absence says nothing."""
+    """The text heuristic alone (signal 2). With `citations: none` no answer carries markers, so
+    their absence says nothing: a refusal pattern must then START the answer ("Se renueva en el
+    mostrador; no hay informacion sobre el costo" is a partial answer)."""
     # shortcut: the text cannot tell an adjacent-topic cited answer from a partial one, so any
     # cited answer is "not a refusal"; deterministic-only runs undercount refusals, rely on hybrid
     # or add a topic check before using deterministic mode for decisions.
-    if not answer.strip() or len(answer) > MAX_REFUSAL_CHARS:
+    if not answer.strip() or len(answer) > MAX_REFUSAL_CHARS or citation_numbers(answer):
         return False
-    if citations == "inline" and citation_numbers(answer):
+    normalized = normalize(answer)
+    if citations == "none" and not any(p.match(normalized) for p in _COMPILED):
         return False
-    return _reads_as_missing(normalize(answer))
+    return _reads_as_missing(normalized)
 
 
 def states_missing_information(sentence: str) -> bool:

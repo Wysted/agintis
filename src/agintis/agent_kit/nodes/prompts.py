@@ -56,8 +56,8 @@ You answer the user's question using ONLY the numbered sources below.
 # The same grounding rules as DEFAULT_SYNTHESIZE_PROMPT, with no citation markers.
 DEFAULT_UNCITED_SYNTHESIZE_PROMPT = """\
 You answer the user's question using ONLY the numbered sources below.
-- Write a plain answer: no [n] markers, no source numbers and no references such as "source 2"
-  in the text.
+- Write a plain answer: no [n] markers and no references to how the sources are numbered
+  ("source 2"). Document numbers or titles that belong to the content are fine.
 - If the sources answer only part of the question, give that part (or point to where the rest
   is: an index entry, a document number about that topic) and say what is missing. If NO source
   covers the topic asked (they only cover neighbouring topics), say you do not know and ignore

@@ -585,6 +585,18 @@ class TestCitationSupport:
         assert result.code == "citations_disabled"
         assert model.structured_seen == []
 
+    async def test_markers_of_an_agent_without_citations_are_judged_as_usual(self) -> None:
+        # e.g. a custom synthesize prompt that cites despite `citations: none`
+        model = judge_model(checks(True, False))
+        record = dataclasses.replace(make_record(), citations="none")
+        result = await CitationSupportJudge(_call(model)).judge(record)
+        assert (result.status, result.verdict) == (JudgeStatus.OK, False)
+
+        dangling = dataclasses.replace(make_record("Dato [7]."), citations="none")
+        result = await CitationSupportJudge(_call(judge_model())).judge(dangling)
+        assert (result.verdict, result.method) == (False, "deterministic")
+        assert result.details["dangling"] == [7]
+
     async def test_a_marker_pointing_to_a_missing_source_fails_without_calling_the_model(
         self,
     ) -> None:
