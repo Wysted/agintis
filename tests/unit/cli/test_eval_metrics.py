@@ -132,4 +132,4 @@ class TestLoadingAndArguments:
 
     def test_defaults(self) -> None:
         args = build_parser().parse_args(["--profiles", "p", "--questions", "q"])
-        assert (args.k, args.mode, args.rerank, args.report) == ((1, 3, 5, 10), "both", False, None)
+        assert (args.k, args.mode, args.rerank, args.report) == ((1, 3, 5, 10), "all", False, None)

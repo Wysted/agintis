@@ -9,8 +9,8 @@ duplicate configuration. Bootstrap reads the settings and passes every value exp
 """
 
 from agintis.modules.knowledge.application import (
+    BM25_LEXICAL_WEIGHT,
     NO_RERANKER_KEY,
-    Bm25HybridRetrieval,
     Chunker,
     Cleaner,
     DenseRetrieval,
@@ -67,7 +67,9 @@ def build_retrieval_modes(*, branch_depth: int, rrf_k: int) -> dict[str, Retriev
     return {
         DENSE_RETRIEVAL_MODE: DenseRetrieval(),
         HYBRID_RETRIEVAL_MODE: HybridRetrieval(branch_depth=branch_depth, rrf_k=rrf_k),
-        BM25_HYBRID_RETRIEVAL_MODE: Bm25HybridRetrieval(branch_depth=branch_depth, rrf_k=rrf_k),
+        BM25_HYBRID_RETRIEVAL_MODE: HybridRetrieval(
+            branch_depth=branch_depth, rrf_k=rrf_k, bm25=True, lexical_weight=BM25_LEXICAL_WEIGHT
+        ),
     }
 
 

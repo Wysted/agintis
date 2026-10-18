@@ -6,9 +6,11 @@ Create Date: 2026-10-17
 
 Serves `retrieval_mode: bm25_hybrid`. pg_textsearch (Timescale, PostgreSQL license) ships with
 the project's Postgres image (docker/postgres) but not with managed Postgres (RDS, Cloud SQL), so
-this revision is a NO-OP (NOTICE) where the extension is not available, where the server does not
-preload its library, and where the migration role cannot create it. Profiles on `bm25_hybrid`
-then fail at boot with a clear error; the other retrieval modes never need it. To add it later,
+this revision is a NO-OP (logged as a WARNING) where the extension is not available, where the
+server does not preload its library, and where the migration role cannot create it. Profiles on
+`bm25_hybrid` then fail at boot with a clear error; the other retrieval modes never need it. A
+compose DB started before the image existed must be rebuilt first
+(`docker compose up -d --build db`), otherwise this revision is skipped. To add it later,
 as a privileged role on a server that preloads the library
 (`shared_preload_libraries = 'pg_textsearch'`):
 
@@ -20,37 +22,49 @@ The text configuration is the one `chunks.tsv` uses (revision 0001), so both lex
 tokenize alike.
 """
 
+import logging
 from collections.abc import Sequence
 
-from alembic import op
+from alembic import context, op
+from sqlalchemy import text
 
 revision: str = "0005"
 down_revision: str | None = "0004"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+logger = logging.getLogger("alembic.runtime.migration")
+
+# The DO block reports why it skipped through this transaction-local setting: psycopg drops
+# server NOTICEs, so the reason is logged from Python.
+SKIP_REASON_SETTING = "agintis.bm25_skip_reason"
+
 # shortcut: one index over every tenant and profile, so BM25 IDF statistics are global (a big
-# tenant shifts another tenant's term weights; filters apply after scoring); move to partial
-# indexes per tenant (or partitioning) when tenants with different vocabularies share a database.
+# tenant shifts another tenant's term weights) and filters apply AFTER scoring: a query of a
+# small tenant/profile scores the matches of every tenant (pending and superseded rows too)
+# until LIMIT rows survive the filters. Only statement_timeout bounds that, and a timeout fails
+# the run with retrieval_unavailable. Move to partial indexes per tenant (or partitioning) when
+# tenants of very different sizes or vocabularies share a database.
 CREATE_BM25_INDEX = """
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_textsearch') THEN
-        RAISE NOTICE 'pg_textsearch is not available: skipping the BM25 index '
-            '(retrieval_mode bm25_hybrid will refuse to boot)';
+        PERFORM set_config('agintis.bm25_skip_reason',
+            'the pg_textsearch extension is not available', true);
         RETURN;
     END IF;
     -- Set by the library once loaded: the same test the extension's install script fails on.
     IF current_setting('pg_textsearch.library_version', true) IS NULL THEN
-        RAISE NOTICE 'pg_textsearch is not in shared_preload_libraries: skipping the BM25 index';
+        PERFORM set_config('agintis.bm25_skip_reason',
+            'pg_textsearch is not in shared_preload_libraries', true);
         RETURN;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_textsearch') THEN
         BEGIN
             CREATE EXTENSION pg_textsearch;
         EXCEPTION WHEN insufficient_privilege THEN
-            RAISE NOTICE 'role % cannot CREATE EXTENSION pg_textsearch: skipping the BM25 index',
-                current_user;
+            PERFORM set_config('agintis.bm25_skip_reason',
+                format('role %s cannot CREATE EXTENSION pg_textsearch', current_user), true);
             RETURN;
         END;
     END IF;
@@ -63,6 +77,19 @@ $$
 
 def upgrade() -> None:
     op.execute(CREATE_BM25_INDEX)
+    if context.is_offline_mode():  # `--sql`: nothing ran, nothing to report
+        return
+    reason = (
+        op.get_bind()
+        .execute(text("SELECT current_setting(:name, true)"), {"name": SKIP_REASON_SETTING})
+        .scalar()
+    )
+    if reason:
+        logger.warning(
+            "BM25 index skipped (%s): retrieval_mode bm25_hybrid will refuse to boot; other "
+            "modes are unaffected. See revision 0005 to add it later.",
+            reason,
+        )
 
 
 def downgrade() -> None:

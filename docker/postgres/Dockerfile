@@ -6,9 +6,11 @@ FROM pgvector/pgvector:0.8.7-pg17 AS build
 # The tag is pinned AND checked against its commit (a moved tag fails the build).
 ARG PG_TEXTSEARCH_TAG=v1.5.1
 ARG PG_TEXTSEARCH_COMMIT=fa142d049d08eac45a263f5abc250c8877ae076e
+# Headers pinned to the base server's exact package version (PG_VERSION comes from the base image):
+# an extension built against newer minor-release headers may not match the running server's ABI.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-    build-essential ca-certificates git "postgresql-server-dev-${PG_MAJOR}" \
+    build-essential ca-certificates git "postgresql-server-dev-${PG_MAJOR}=${PG_VERSION}" \
  && git -c advice.detachedHead=false clone --depth 1 --branch "${PG_TEXTSEARCH_TAG}" \
     https://github.com/timescale/pg_textsearch /tmp/pg_textsearch \
  && test "$(git -C /tmp/pg_textsearch rev-parse HEAD)" = "${PG_TEXTSEARCH_COMMIT}" \

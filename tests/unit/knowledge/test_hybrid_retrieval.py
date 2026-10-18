@@ -10,7 +10,6 @@ from agintis.modules.knowledge.api import (
     BM25_HYBRID_RETRIEVAL_MODE,
     DENSE_RETRIEVAL_MODE,
     HYBRID_RETRIEVAL_MODE,
-    Bm25HybridRetrieval,
     HybridRetrieval,
     IngestDocument,
     QueryTooLongError,
@@ -25,12 +24,12 @@ from agintis.modules.knowledge.api import (
     validate_profiles,
 )
 from agintis.modules.knowledge.application import (
+    BM25_LEXICAL_WEIGHT,
     CandidateRequest,
     DenseRetrieval,
     NoopReranker,
     RetrievedHit,
 )
-from agintis.modules.knowledge.application.retrieval_modes import BM25_LEXICAL_WEIGHT
 from agintis.modules.knowledge.domain import Chunk, MetadataField, reciprocal_rank_fusion
 from agintis.modules.knowledge.infrastructure.registry import build_retrieval_modes
 from agintis.shared_kernel.criteria import Filter, FilterExpr
@@ -102,7 +101,7 @@ class TestReciprocalRankFusion:
 
     def test_branch_weights_scale_each_reciprocal_rank(self) -> None:
         fused = reciprocal_rank_fusion(
-            _scored("a", "b"), _scored("b", "c"), k=60, dense_weight=1.0, lexical_weight=0.5
+            _scored("a", "b"), _scored("b", "c"), k=60, lexical_weight=0.5
         )
         scores = {str(f.chunk.id): f.fused_score for f in fused}
         assert scores["b"] == pytest.approx(1 / 62 + 0.5 / 61)
@@ -114,15 +113,13 @@ class TestReciprocalRankFusion:
         lighter = reciprocal_rank_fusion(_scored("z"), _scored("c"), lexical_weight=0.5)
         assert [f.chunk.id for f in lighter] == ["z", "c"]  # equal weights would put c first
         assert reciprocal_rank_fusion(dense, lexical) == reciprocal_rank_fusion(
-            dense, lexical, dense_weight=1.0, lexical_weight=1.0
+            dense, lexical, lexical_weight=1.0
         )
 
     @pytest.mark.parametrize("weight", [0.0, -1.0, math.nan])
     def test_non_positive_weights_are_rejected(self, weight: float) -> None:
-        with pytest.raises(ValueError, match="weights"):
+        with pytest.raises(ValueError, match="lexical_weight"):
             reciprocal_rank_fusion([], [], lexical_weight=weight)
-        with pytest.raises(ValueError, match="weights"):
-            reciprocal_rank_fusion([], [], dense_weight=weight)
 
 
 class TestFakeLexicalScorer:
@@ -185,14 +182,13 @@ class TestRetrievalModes:
             BM25_HYBRID_RETRIEVAL_MODE,
         }
         assert isinstance(modes[DENSE_RETRIEVAL_MODE], DenseRetrieval)
-        assert isinstance(modes[BM25_HYBRID_RETRIEVAL_MODE], Bm25HybridRetrieval)
+        assert isinstance(modes[BM25_HYBRID_RETRIEVAL_MODE], HybridRetrieval)
 
-    @pytest.mark.parametrize("strategy", [HybridRetrieval, Bm25HybridRetrieval])
-    def test_hybrid_parameters_are_validated(self, strategy: type[HybridRetrieval]) -> None:
+    def test_hybrid_parameters_are_validated(self) -> None:
         with pytest.raises(ValueError, match="branch_depth"):
-            strategy(branch_depth=0)
+            HybridRetrieval(branch_depth=0)
         with pytest.raises(ValueError, match="rrf_k"):
-            strategy(rrf_k=0)
+            HybridRetrieval(rrf_k=0)
 
     async def test_dense_candidates_carry_similarity_only(self) -> None:
         retrieve, _ = await _env()
@@ -260,7 +256,8 @@ class TestBm25HybridRetrieval:
             [_spy_chunk("c1", "otra cosa"), _spy_chunk("c2", "afiliacion sola")],
             [[1.0, 0.0], [0.0, 1.0]],
         )
-        found = await Bm25HybridRetrieval(branch_depth=5, rrf_k=60).candidates(
+        bm25_hybrid = build_retrieval_modes(branch_depth=5, rrf_k=60)[BM25_HYBRID_RETRIEVAL_MODE]
+        found = await bm25_hybrid.candidates(
             spy, CandidateRequest(TENANT, "afiliacion pago", [1.0, 0.0], None, 2)
         )
         by_id = {str(c.scored.chunk.id): c for c in found}
@@ -275,10 +272,12 @@ class TestBm25HybridRetrieval:
         spy = BranchSpy()
         schema = (MetadataField("area", "str", filterable=True),)
         expr = Filter.eq("area", "x")
-        await Bm25HybridRetrieval(branch_depth=3).candidates(
-            spy, CandidateRequest(TENANT, "q", [1.0, 0.0], expr, 7, schema)
-        )
+        request = CandidateRequest(TENANT, "q", [1.0, 0.0], expr, 7, schema)
+        await HybridRetrieval(branch_depth=3, bm25=True).candidates(spy, request)
         assert spy.calls == [("dense", expr, 7, schema), ("bm25", expr, 7, schema)]
+        spy.calls.clear()
+        await HybridRetrieval(branch_depth=3).candidates(spy, request)  # plain hybrid
+        assert spy.calls == [("dense", expr, 7, schema), ("lexical", expr, 7, schema)]
 
     async def test_a_bm25_profile_retrieves_through_retrieve_for_topic(self) -> None:
         retrieve, profile = await _env(retrieval_mode=BM25_HYBRID_RETRIEVAL_MODE)

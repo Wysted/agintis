@@ -61,7 +61,7 @@ from agintis.modules.knowledge.application.probe_profiles import (
 )
 from agintis.modules.knowledge.application.rerankers import NO_RERANKER_KEY, NoopReranker
 from agintis.modules.knowledge.application.retrieval_modes import (
-    Bm25HybridRetrieval,
+    BM25_LEXICAL_WEIGHT,
     Candidate,
     CandidateRequest,
     DenseRetrieval,
@@ -75,6 +75,7 @@ from agintis.modules.knowledge.application.retrieve_for_topic import (
 )
 
 __all__ = [
+    "BM25_LEXICAL_WEIGHT",
     "DEFAULT_MAX_QUERY_CHARS",
     "DEFAULT_PROBE_K",
     "DEFAULT_RERANK_CANDIDATES",
@@ -82,7 +83,6 @@ __all__ = [
     "BatchItem",
     "BatchOutcome",
     "BatchStatus",
-    "Bm25HybridRetrieval",
     "Candidate",
     "CandidateRequest",
     "ChunkDraft",

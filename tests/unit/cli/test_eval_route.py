@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from agintis.agent_kit.nodes import RoutedTopic, RouteScope, TopicEvidence
-from agintis.bootstrap.container import Container
+from agintis.bootstrap.container import Container, StartupError
 from agintis.cli import eval as eval_cli
 from agintis.cli._common import UsageError
 from agintis.cli.eval import (
@@ -27,7 +27,11 @@ from agintis.cli.eval import (
 )
 from agintis.cli.eval_metrics import EvalQuestion
 from agintis.modules.agents.rag_chat import AgentSpec, parse_agent_spec
-from agintis.modules.knowledge.api import DENSE_RETRIEVAL_MODE
+from agintis.modules.knowledge.api import (
+    BM25_HYBRID_RETRIEVAL_MODE,
+    DENSE_RETRIEVAL_MODE,
+    HYBRID_RETRIEVAL_MODE,
+)
 from agintis.platform.llm import ChatModels
 from agintis.shared_kernel.ids import TenantId
 from tests.fakes.llm import ScriptedChatModel, chat_models_for
@@ -301,6 +305,54 @@ class _RunHelpers:
             encoding="utf-8",
         )
         return directory
+
+
+class TestModeSets(_RunHelpers):
+    """`all` (the default) adds bm25_hybrid only where its index exists; explicit fails."""
+
+    async def _container(self, *, bm25: bool) -> Container:
+        container = await _container(ChatModels(None))
+
+        async def require_bm25_index() -> None:
+            if not bm25:
+                raise StartupError("retrieval_mode bm25_hybrid needs the pg_textsearch extension")
+
+        container.require_bm25_index = require_bm25_index  # type: ignore[method-assign]
+        return container
+
+    async def test_all_runs_every_mode_where_the_bm25_index_exists(
+        self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
+    ) -> None:
+        self._patch(monkeypatch, await self._container(bm25=True), llm=False)
+        report = await eval_cli.run(self._args(questions_file, mode="all"))
+        assert list(report["modes"]) == [
+            DENSE_RETRIEVAL_MODE,
+            HYBRID_RETRIEVAL_MODE,
+            BM25_HYBRID_RETRIEVAL_MODE,
+        ]
+        assert "skipped_modes" not in report
+
+    async def test_all_skips_bm25_hybrid_without_the_index_and_says_so(
+        self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
+    ) -> None:
+        self._patch(monkeypatch, await self._container(bm25=False), llm=False)
+        report = await eval_cli.run(self._args(questions_file, mode="all"))
+        assert list(report["modes"]) == [DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE]
+        assert "pg_textsearch" in report["skipped_modes"][BM25_HYBRID_RETRIEVAL_MODE]
+
+    async def test_an_explicit_bm25_hybrid_fails_without_the_index(
+        self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
+    ) -> None:
+        self._patch(monkeypatch, await self._container(bm25=False), llm=False)
+        with pytest.raises(StartupError, match="pg_textsearch"):
+            await eval_cli.run(self._args(questions_file, mode=BM25_HYBRID_RETRIEVAL_MODE))
+
+    async def test_both_never_needs_the_index(
+        self, monkeypatch: pytest.MonkeyPatch, questions_file: Path
+    ) -> None:
+        self._patch(monkeypatch, await self._container(bm25=False), llm=False)
+        report = await eval_cli.run(self._args(questions_file, mode="both"))
+        assert list(report["modes"]) == [DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE]
 
 
 class TestRun(_RunHelpers):

@@ -117,11 +117,16 @@ plus the other extras you use (`--all-extras` includes it); Docker:
 
 1. `profiles/*.yaml`: one retrieval profile per document family (parser, cleaners, chunker,
    embedding/search settings) plus routing rules. No registry to edit. `retrieval_mode`: `dense`
-   (default), `hybrid` (dense + Postgres full-text, any Postgres) or `bm25_hybrid` (dense + BM25
-   from the pg_textsearch extension, weighted RRF). `bm25_hybrid` needs the project's Postgres
-   image (`docker/postgres`, used by compose and CI); managed Postgres such as RDS or Cloud SQL
-   lacks the extension, so the app refuses to boot with such a profile there: use `hybrid`.
-   Both shipped cases use `bm25_hybrid`.
+   (default), `hybrid` (dense + Postgres full-text, any Postgres) or the opt-in `bm25_hybrid`
+   (dense + BM25 from the pg_textsearch extension, weighted RRF). `bm25_hybrid` needs the
+   project's Postgres image (`docker/postgres`, used by compose and CI); managed Postgres such as
+   RDS or Cloud SQL lacks the extension, so the app refuses to boot with such a profile there.
+   A compose DB created before that image must be rebuilt (`docker compose up -d --build db`)
+   before `alembic upgrade head`, otherwise revision 0005 skips the BM25 index (logged warning).
+   The shipped cases do not use it: measured as MRR@10 vs dense, a fresh spensiones dev set
+   gained (.7304 -> .7708) but the older one dropped past the -0.01 limit (.7937 -> .7780;
+   fastapi_es .7917 -> .7900). The BM25 index is shared by every tenant, so term statistics
+   (IDF) mix tenants; an offline run with per-tenant indexes had stayed within the limit.
 2. Corpus: `index/documents.jsonl` (one row per document, titles from `document_metadata.title`
    or the parser's H1) and the files under `samples/` with `samples/_manifest.json`. Write a
    `fetch/` script that produces both. After a re-fetch that changed or dropped sources, ingest

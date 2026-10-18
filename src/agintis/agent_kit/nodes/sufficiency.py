@@ -87,11 +87,12 @@ def source_is_relevant(item: SourceItem, min_rerank_score: float) -> bool | None
     """The hit's own relevance evidence, strongest first; None = no evidence at all.
 
     1. a cross-encoder score (reranker on): relevant when `rerank_score >= min_rerank_score`;
-    2. no reranker (dense-only or hybrid): no usable signal. A cosine similarity has no stable
-       threshold across queries and models, and a hybrid `lexical_rank` only says that every stem
-       of the whole question matched in one chunk (`plainto_tsquery` AND), which natural-language
-       questions rarely satisfy: treating its absence as "irrelevant" made the rewrite loop fire
-       on most well-answered questions.
+    2. no reranker (dense-only, hybrid or bm25_hybrid): no usable signal. A cosine similarity
+       has no stable threshold across queries and models, and `lexical_rank` means little either
+       way: with `hybrid` it says every stem of the whole question matched in one chunk
+       (`plainto_tsquery` AND), which natural-language questions rarely satisfy (treating its
+       absence as "irrelevant" made the rewrite loop fire on most well-answered questions);
+       with `bm25_hybrid` it only says SOME query term matched, which nearly every hit does.
     """
     score = item.get("rerank_score")
     if score is not None:
@@ -104,9 +105,9 @@ class RelevanceSufficiency(Sufficiency):
 
     - Nothing retrieved at all (every topic empty after the filter fallback ladder: empty
       corpus or profile): never rewrite, a broader query cannot help.
-    - A source without any evidence (no reranker, dense or hybrid) counts as relevant, so this
-      strategy degrades to "always sufficient" there (debug log): with no signal a rewrite would
-      be a coin flip that costs a model call and a second retrieval.
+    - A source without any evidence (no reranker: dense or either hybrid) counts as relevant,
+      so this strategy degrades to "always sufficient" there (debug log): with no signal a
+      rewrite would be a coin flip that costs a model call and a second retrieval.
     - In a mixed fan-out (one topic with a reranker, another without) a no-signal source counts
       as relevant, so the topic without a reranker masks negative rerank evidence of the other.
     """

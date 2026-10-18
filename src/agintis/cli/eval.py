@@ -2,14 +2,15 @@
 
     uv run python -m agintis.cli.eval --profiles case/spensiones/profiles \
         --questions case/spensiones/profiles/eval_questions.jsonl \
-        --k 1,3,5,10 --mode both --report /tmp/retrieval_report.json
+        --k 1,3,5,10 --mode all --report /tmp/retrieval_report.json
 
 Each question is retrieved with ITS profile and NO filters (raw retrieval: the locator is only
 used to judge the hits), against the configured database, READ-ONLY (every connection opens with
 `default_transaction_read_only=on`, so a bug cannot write). The profile's `top_k` is
 raised to the largest `--k`, `--mode` overrides its `retrieval_mode` (`both` runs dense then
-hybrid) and the reranker is off unless `--rerank` (it is slow on CPU and would blur the
-comparison of the retrieval modes). A hit is a chunk holding the expected snippet whose metadata
+hybrid; `all`, the default, also bm25_hybrid where the database has its BM25 index) and the
+reranker is off unless `--rerank` (it is slow on CPU and would blur the comparison of the
+retrieval modes). A hit is a chunk holding the expected snippet whose metadata
 matches the locator (`agintis.cli.eval_metrics`). The query is embedded through the configured
 embedding service.
 
@@ -88,7 +89,7 @@ from agintis.agent_kit.nodes import (
     select_by_evidence,
 )
 from agintis.agent_kit.runtime import QueryVectors
-from agintis.bootstrap.container import Container
+from agintis.bootstrap.container import Container, StartupError
 from agintis.bootstrap.llm import build_chat_models
 from agintis.bootstrap.settings import Settings, get_settings
 from agintis.cli._common import (
@@ -123,6 +124,12 @@ from agintis.platform.llm import ChatModels, ChatRole, LlmNotConfiguredError
 from agintis.shared_kernel.ids import TenantId
 
 BOTH = "both"
+ALL = "all"
+# Mode sets of `--mode`; `all` skips bm25_hybrid (with a note) where its index is missing.
+MODE_SETS = {
+    BOTH: (DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE),
+    ALL: (DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE, BM25_HYBRID_RETRIEVAL_MODE),
+}
 EXTRACTED = "extracted"
 EXTRACTION_SKIPPED = "skipped (no topic)"
 ROUTED = "routed"
@@ -165,9 +172,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=[DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE, BM25_HYBRID_RETRIEVAL_MODE, BOTH],
-        default=BOTH,
-        help="retrieval mode to measure (default: %(default)s)",
+        choices=[
+            DENSE_RETRIEVAL_MODE,
+            HYBRID_RETRIEVAL_MODE,
+            BM25_HYBRID_RETRIEVAL_MODE,
+            BOTH,
+            ALL,
+        ],
+        default=ALL,
+        help=(
+            "retrieval mode to measure: one mode, `both` (dense, hybrid) or `all` (both plus "
+            "bm25_hybrid, skipped with a note when the database lacks the pg_textsearch BM25 "
+            "index; an explicit bm25_hybrid fails there) (default: %(default)s)"
+        ),
     )
     parser.add_argument("--report", type=Path, help="write the JSON report here")
     parser.add_argument("--tenant", default=DEFAULT_TENANT, help="tenant id (default: %(default)s)")
@@ -840,7 +857,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.route:
         needs[ChatRole.ROUTER] = "--route"
     check_llm_available(settings, {b.spec.id: b.spec for b in topics.values()}.values(), needs)
-    modes = [DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE] if args.mode == BOTH else [args.mode]
+    modes = list(MODE_SETS.get(args.mode, (args.mode,)))
     report: dict[str, Any] = {
         "tenant": args.tenant,
         "ks": list(args.k),
@@ -849,6 +866,15 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         "modes": {},
     }
     async with Container.build(settings) as container:
+        if BM25_HYBRID_RETRIEVAL_MODE in modes:
+            try:
+                await container.require_bm25_index()
+            except StartupError as exc:
+                if args.mode != ALL:
+                    raise
+                print(f"skipping {BM25_HYBRID_RETRIEVAL_MODE}: {exc}")
+                modes.remove(BM25_HYBRID_RETRIEVAL_MODE)
+                report["skipped_modes"] = {BM25_HYBRID_RETRIEVAL_MODE: str(exc)}
         used = sorted({q.profile for q in questions})
         report["provenance"] = provenance(
             settings,

@@ -296,9 +296,14 @@ class PgChunkRepository(ChunkRepository):
         `<@>` returns the NEGATED BM25 score (ascending = best first), which lets the bm25 index
         serve the ORDER BY ... LIMIT (an incremental sort adds the id tiebreak); filters are
         applied after scoring and the scan keeps going until LIMIT rows survive. Only chunks
-        matching some query term are kept (`< 0`: a non-matching row scores 0 when the planner
-        does not use the index). The index (revision 0005) fixes the text configuration;
-        tenant, filter, READY-only and the statement timeout as in `search_lexical`.
+        matching some query term are kept, in Python: a non-matching row scores 0 when the
+        planner does not use the index, and 0 sorts after every match, so dropping it after the
+        LIMIT is the same result. Not in SQL: a `<@>` condition in WHERE is evaluated per
+        scanned row (EXPLAIN shows it as a Filter re-scoring every row the index returns, other
+        tenants included). The selected score is still computed per RETURNED row: pg_textsearch
+        reuses the index's cached score only for an ORDER BY expression that is not selected.
+        The index (revision 0005) fixes the text configuration; tenant, filter, READY-only and
+        the statement timeout as in `search_lexical`.
         """
         if k <= 0:
             raise ValueError("k must be greater than 0")
@@ -319,7 +324,7 @@ class PgChunkRepository(ChunkRepository):
                     documents.c.tenant_id == chunks.c.tenant_id,
                 ),
             )
-            .where(documents.c.status == DocumentStatus.READY.value, distance < 0, where)
+            .where(documents.c.status == DocumentStatus.READY.value, where)
             .order_by(score, _ID_ORDER)
             .limit(k)
         )
@@ -329,7 +334,8 @@ class PgChunkRepository(ChunkRepository):
             )
             rows = (await uow.session.execute(stmt)).mappings().all()
         # Defense in depth: best (most negative) first, ties by id (code points).
-        ordered = sorted(rows, key=lambda r: (float(r["score"]), str(r["id"])))
+        matching = [row for row in rows if float(row["score"]) < 0]
+        ordered = sorted(matching, key=lambda r: (float(r["score"]), str(r["id"])))
         return [ScoredChunk(_to_chunk(row), -float(row["score"])) for row in ordered]
 
     async def delete_by_document(self, tenant_id: TenantId, document_id: DocumentId) -> None:

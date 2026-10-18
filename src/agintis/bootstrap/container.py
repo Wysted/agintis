@@ -449,11 +449,11 @@ class Container:
         logger.info("Database reachable, pgvector %s, schema %s", version, SCHEMA_HEAD_REVISION)
         try:
             await verify_text_search_config(self.engine, self.settings.knowledge.text_search_config)
-            # Optional extension: checked only when a profile needs it.
-            if any(p.retrieval_mode == BM25_HYBRID_RETRIEVAL_MODE for p in self.profiles.all()):
-                await verify_bm25_index(self.engine)
         except TextSearchConfigError as exc:
             raise StartupError(str(exc)) from exc
+        # Optional extension: checked only when a profile needs it.
+        if any(p.retrieval_mode == BM25_HYBRID_RETRIEVAL_MODE for p in self.profiles.all()):
+            await self.require_bm25_index()
         await self._warn_metadata_index_problems()
         if self.checkpointer is not None:
             try:
@@ -465,6 +465,13 @@ class Container:
             # surface here as LlmError) and checks the analyzer's structured output.
             self.chat_models.verify()
         except LlmError as exc:
+            raise StartupError(str(exc)) from exc
+
+    async def require_bm25_index(self) -> None:
+        """StartupError unless pg_textsearch and the BM25 index exist (`bm25_hybrid` needs them)."""
+        try:
+            await verify_bm25_index(self.engine)
+        except TextSearchConfigError as exc:
             raise StartupError(str(exc)) from exc
 
     async def _warn_metadata_index_problems(self) -> None:

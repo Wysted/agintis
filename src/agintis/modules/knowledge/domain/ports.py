@@ -228,14 +228,17 @@ class ChunkRepository(ABC):
         metadata_fields: Sequence[MetadataField] = (),
         branch_depth: int = DEFAULT_BRANCH_DEPTH,
         rrf_k: int = DEFAULT_RRF_K,
+        bm25: bool = False,
+        lexical_weight: float = 1.0,
     ) -> list[FusedChunk]:
         """Dense + lexical search fused with Reciprocal Rank Fusion, best first.
 
-        Each branch runs with the SAME tenant scope and `filter` (so a chunk excluded by a
-        filter can never enter through the other branch) and fetches `max(branch_depth, k)`
-        candidates; the fused list is cut to `k`, ordered by fused score then chunk id.
-        Implemented once here, on top of the two branch searches, so every adapter fuses the
-        same way and only the branches are adapter-specific.
+        The lexical branch is `search_lexical`, or `search_bm25` when `bm25` is set, weighted by
+        `lexical_weight` in the fusion (dense = 1). Each branch runs with the SAME tenant scope
+        and `filter` (so a chunk excluded by a filter can never enter through the other branch)
+        and fetches `max(branch_depth, k)` candidates; the fused list is cut to `k`, ordered by
+        fused score then chunk id. Implemented once here, on top of the branch searches, so
+        every adapter fuses the same way and only the branches are adapter-specific.
         """
         if k <= 0:
             raise ValueError("k must be greater than 0")
@@ -243,10 +246,13 @@ class ChunkRepository(ABC):
         dense = await self.search(
             tenant_id, query_vector, filter, depth, metadata_fields=metadata_fields
         )
-        lexical = await self.search_lexical(
+        lexical_search = self.search_bm25 if bm25 else self.search_lexical
+        lexical = await lexical_search(
             tenant_id, query_text, filter, depth, metadata_fields=metadata_fields
         )
-        return reciprocal_rank_fusion(dense, lexical, k=rrf_k, limit=k)
+        return reciprocal_rank_fusion(
+            dense, lexical, k=rrf_k, limit=k, lexical_weight=lexical_weight
+        )
 
     @abstractmethod
     async def delete_by_document(self, tenant_id: TenantId, document_id: DocumentId) -> None: ...

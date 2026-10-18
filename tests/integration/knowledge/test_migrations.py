@@ -5,6 +5,7 @@ Uses its own disposable database (`agintis_test_migrations`), never the shared t
 """
 
 import hashlib
+import logging
 import secrets
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -168,14 +169,20 @@ class TestUnprivilegedMigrator:
             with psycopg.connect(libpq_dsn(admin), autocommit=True) as conn:
                 conn.execute(f'DROP ROLE IF EXISTS "{ROLE}"')
 
-    def test_existing_extensions_are_left_alone(self, admin: URL, role_url: URL) -> None:
+    def test_existing_extensions_are_left_alone(
+        self, admin: URL, role_url: URL, caplog: pytest.LogCaptureFixture
+    ) -> None:
         with psycopg.connect(libpq_dsn(admin, DATABASE), autocommit=True) as conn:
             conn.execute("CREATE EXTENSION vector")
             conn.execute("CREATE EXTENSION unaccent")
-        run_alembic(command.upgrade, alembic_config(role_url, embedding_dim=DIM), "head")
+        with caplog.at_level(logging.WARNING, logger="alembic"):
+            run_alembic(command.upgrade, alembic_config(role_url, embedding_dim=DIM), "head")
         assert {"documents", "chunks"} <= _tables(role_url)
-        # pg_textsearch needs a superuser: the role skips it (NOTICE) instead of failing.
+        # pg_textsearch needs a superuser: the role skips it instead of failing, and says so
+        # (a server NOTICE would be dropped by psycopg).
         assert not _has_bm25_index(role_url)
+        if _pg_textsearch_available(admin):
+            assert f"role {ROLE} cannot CREATE EXTENSION pg_textsearch" in caplog.text
 
     def test_missing_extension_fails_clearly_instead_of_with_a_privilege_error(
         self, admin: URL, role_url: URL
