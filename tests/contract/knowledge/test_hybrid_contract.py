@@ -28,6 +28,7 @@ from agintis.modules.knowledge.infrastructure.postgres import (
     PgChunkRepository,
     PgDocumentRepository,
 )
+from agintis.modules.knowledge.infrastructure.postgres.tables import BM25_INDEX
 from agintis.platform.db import create_session_factory
 from agintis.shared_kernel.criteria import Filter, UnknownFieldError
 from agintis.shared_kernel.ids import ChunkId, DocumentId, TenantId
@@ -156,17 +157,18 @@ class TestLexicalBranch:
         assert len(await repos.chunks.search_lexical(A, QUERY, None, k=2)) == 2
 
 
-BM25_INDEX = "ix_chunks_text_bm25"
+# On these tiny tables the planner would seq-scan and score every row, never exercising the
+# BM25 index path (its filter-after-scoring scan, its cached scores).
+INDEX_PATH = "-c enable_seqscan=off -c enable_sort=off"
+# The opposite: every tenant row is scored outside the index, a non-matching one at 0.
+NO_INDEX_PATH = "-c enable_indexscan=off -c enable_bitmapscan=off"
 
 
 @asynccontextmanager
-async def _index_only(url: URL) -> AsyncIterator[tuple[Repos, AsyncEngine]]:
-    """Postgres repositories whose sessions avoid sequential scans: on these tiny tables the
-    planner would otherwise seq-scan and score every row, never exercising the BM25 index path
-    (its filter-after-scoring scan, its cached scores)."""
+async def _planner_forced(url: URL, options: str) -> AsyncIterator[tuple[Repos, AsyncEngine]]:
+    """Postgres repositories whose sessions run with the given planner `options`."""
     engine = create_async_engine(
-        url.render_as_string(hide_password=False),
-        connect_args={"options": "-c enable_seqscan=off -c enable_sort=off"},
+        url.render_as_string(hide_password=False), connect_args={"options": options}
     )
     try:
         factory = create_session_factory(engine)
@@ -187,13 +189,19 @@ async def bm25_repos(request: pytest.FixtureRequest) -> AsyncIterator[Repos]:
         documents = InMemoryDocumentRepository()
         yield Repos(documents, InMemoryChunkRepository(documents))
         return
-    async with _index_only(request.getfixturevalue("pg_test_url")) as (repos, _):
+    async with _planner_forced(request.getfixturevalue("pg_test_url"), INDEX_PATH) as (repos, _):
         yield repos
 
 
 @pytest.fixture
 async def pg_bm25(pg_test_url: URL) -> AsyncIterator[tuple[Repos, AsyncEngine]]:
-    async with _index_only(pg_test_url) as pair:
+    async with _planner_forced(pg_test_url, INDEX_PATH) as pair:
+        yield pair
+
+
+@pytest.fixture
+async def pg_bm25_no_index(pg_test_url: URL) -> AsyncIterator[tuple[Repos, AsyncEngine]]:
+    async with _planner_forced(pg_test_url, NO_INDEX_PATH) as pair:
         yield pair
 
 
@@ -201,6 +209,26 @@ def _plan_nodes(node: dict[str, Any]) -> Iterator[dict[str, Any]]:
     yield node
     for child in node.get("Plans", []):
         yield from _plan_nodes(child)
+
+
+async def _bm25_plan(repos: Repos, engine: AsyncEngine) -> list[dict[str, Any]]:
+    """Plan nodes of the statement `search_bm25` sends, explained on the same engine."""
+    sent: list[tuple[str, Any]] = []
+
+    def record(conn: Any, cursor: Any, statement: str, parameters: Any, *args: Any) -> None:
+        if "to_bm25query" in statement:
+            sent.append((statement, parameters))
+
+    event.listen(engine.sync_engine, "before_cursor_execute", record)
+    try:
+        await repos.chunks.search_bm25(A, QUERY, None, k=5)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", record)
+    ((statement, parameters),) = sent
+    async with engine.connect() as conn:
+        result = await conn.exec_driver_sql(f"EXPLAIN (FORMAT JSON) {statement}", parameters)
+        plan = result.scalar_one()
+    return list(_plan_nodes(plan[0]["Plan"]))
 
 
 class TestBm25Branch:
@@ -270,17 +298,19 @@ class TestBm25Branch:
         assert len(await repos.chunks.search_bm25(A, QUERY, None, k=2)) == 2
 
 
-class TestBm25DefaultPlan:
-    async def test_chunks_scored_outside_the_index_never_match(self, repos: Repos) -> None:
-        """Default planner settings: on a tiny table Postgres scores every tenant row (seq scan
-        or btree + sort), a non-matching one at 0; it must still not be returned."""
+@pytest.mark.integration
+class TestBm25WithoutIndex:
+    async def test_chunks_scored_outside_the_index_never_match(
+        self, pg_bm25_no_index: tuple[Repos, AsyncEngine]
+    ) -> None:
+        """Without the index Postgres scores every tenant row, a non-matching one at 0: the
+        repository must drop it."""
+        repos, engine = pg_bm25_no_index
         await repos.documents.save(_doc(A, "d"))
         match = _chunk(A, "d", "c1", EXACT_TEXT)
         await repos.chunks.add_many([match, _chunk(A, "d", "c2", OTHER_TEXT)], [NEAR, NEAR])
-        try:
-            hits = await repos.chunks.search_bm25(A, QUERY, None, k=10)
-        except DBAPIError as exc:
-            skip_or_fail(f"BM25 search unavailable: {exc.orig.__class__.__name__}")
+        assert BM25_INDEX not in {n.get("Index Name") for n in await _bm25_plan(repos, engine)}
+        hits = await repos.chunks.search_bm25(A, QUERY, None, k=10)
         assert [h.chunk.id for h in hits] == [match.id]
 
 
@@ -310,22 +340,7 @@ class TestBm25IndexPath:
         repos, engine = pg_bm25
         await repos.documents.save(_doc(A, "d"))
         await repos.chunks.add_many([_chunk(A, "d", "c1", EXACT_TEXT)], [NEAR])
-        sent: list[tuple[str, Any]] = []
-
-        def record(conn: Any, cursor: Any, statement: str, parameters: Any, *args: Any) -> None:
-            if "to_bm25query" in statement:
-                sent.append((statement, parameters))
-
-        event.listen(engine.sync_engine, "before_cursor_execute", record)
-        try:
-            await repos.chunks.search_bm25(A, QUERY, None, k=5)
-        finally:
-            event.remove(engine.sync_engine, "before_cursor_execute", record)
-        ((statement, parameters),) = sent
-        async with engine.connect() as conn:
-            result = await conn.exec_driver_sql(f"EXPLAIN (FORMAT JSON) {statement}", parameters)
-            plan = result.scalar_one()
-        nodes = list(_plan_nodes(plan[0]["Plan"]))
+        nodes = await _bm25_plan(repos, engine)
         assert BM25_INDEX in {n.get("Index Name") for n in nodes}
         # A `<@>` condition in a Filter re-scores every row the index scan returns.
         assert not [n["Filter"] for n in nodes if "<@>" in n.get("Filter", "")]

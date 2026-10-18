@@ -126,7 +126,7 @@ plus the other extras you use (`--all-extras` includes it); Docker:
    The shipped cases do not use it: measured as MRR@10 vs dense, a fresh spensiones dev set
    gained (.7304 -> .7708) but the older one dropped past the -0.01 limit (.7937 -> .7780;
    fastapi_es .7917 -> .7900). The BM25 index is shared by every tenant, so term statistics
-   (IDF) mix tenants; an offline run with per-tenant indexes had stayed within the limit.
+   (IDF) mix tenants; an offline run with per-tenant indexes had stayed within it (.7879, fastapi_es .7861).
 2. Corpus: `index/documents.jsonl` (one row per document, titles from `document_metadata.title`
    or the parser's H1) and the files under `samples/` with `samples/_manifest.json`. Write a
    `fetch/` script that produces both. After a re-fetch that changed or dropped sources, ingest

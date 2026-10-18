@@ -126,7 +126,7 @@ más los otros extras que uses (`--all-extras` lo incluye); Docker:
    spensiones mejoró (.7304 -> .7708) pero el anterior cayó más allá del límite de -0.01
    (.7937 -> .7780; fastapi_es .7917 -> .7900). El índice BM25 es compartido por todos los tenants,
    así que las estadísticas de términos (IDF) mezclan tenants; una corrida offline con índices por
-   tenant se había mantenido dentro del límite.
+   tenant se había mantenido dentro de él (.7879; fastapi_es .7861).
 2. Corpus: `index/documents.jsonl` (una fila por documento, títulos desde `document_metadata.title`
    o el H1 del parser) y los archivos bajo `samples/` con `samples/_manifest.json`. Escribe un
    script en `fetch/` que produzca ambos. Tras una nueva descarga que cambió o eliminó fuentes, ingesta

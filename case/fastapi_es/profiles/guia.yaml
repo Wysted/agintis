@@ -26,5 +26,4 @@ reranker_key: none
 # Hybrid like the spensiones profiles: questions name identifiers (Depends, Query, response_model)
 # that a lexical match pins down.
 retrieval_mode: hybrid
-# bm25_hybrid (opt-in) measured, not adopted (spensiones failed the -0.01 MRR@10 limit): here
-# .7917 -> .7900 with the global index (.7861 offline, per-tenant indexes).
+# bm25_hybrid is available opt-in; measured but not adopted, see README.

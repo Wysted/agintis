@@ -74,5 +74,4 @@ metadata_fields:
     filterable: true
 default_filter: null
 reranker_key: none
-# bm25_hybrid (opt-in) measured, not adopted: MRR@10 vs dense with the global index, dev2 set
-# .7304 -> .7708 but old set .7937 -> .7780 (limit -0.01; per-tenant indexes offline: .7879).
+# bm25_hybrid is available opt-in; measured but not adopted, see README.

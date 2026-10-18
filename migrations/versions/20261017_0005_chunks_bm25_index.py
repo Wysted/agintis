@@ -45,17 +45,17 @@ SKIP_REASON_SETTING = "agintis.bm25_skip_reason"
 # until LIMIT rows survive the filters. Only statement_timeout bounds that, and a timeout fails
 # the run with retrieval_unavailable. Move to partial indexes per tenant (or partitioning) when
 # tenants of very different sizes or vocabularies share a database.
-CREATE_BM25_INDEX = """
+CREATE_BM25_INDEX = f"""
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_textsearch') THEN
-        PERFORM set_config('agintis.bm25_skip_reason',
+        PERFORM set_config('{SKIP_REASON_SETTING}',
             'the pg_textsearch extension is not available', true);
         RETURN;
     END IF;
     -- Set by the library once loaded: the same test the extension's install script fails on.
     IF current_setting('pg_textsearch.library_version', true) IS NULL THEN
-        PERFORM set_config('agintis.bm25_skip_reason',
+        PERFORM set_config('{SKIP_REASON_SETTING}',
             'pg_textsearch is not in shared_preload_libraries', true);
         RETURN;
     END IF;
@@ -63,7 +63,7 @@ BEGIN
         BEGIN
             CREATE EXTENSION pg_textsearch;
         EXCEPTION WHEN insufficient_privilege THEN
-            PERFORM set_config('agintis.bm25_skip_reason',
+            PERFORM set_config('{SKIP_REASON_SETTING}',
                 format('role %s cannot CREATE EXTENSION pg_textsearch', current_user), true);
             RETURN;
         END;
