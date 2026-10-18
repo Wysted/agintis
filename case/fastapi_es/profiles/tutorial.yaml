@@ -24,6 +24,6 @@ metadata_fields:
   - {name: doc_family, type: str, source: 'const:tutorial'}
 default_filter: null
 reranker_key: none
-# Hybrid like the spensiones profiles: questions name identifiers (Depends, Query, response_model)
+# Lexical leg like the spensiones profiles: questions name identifiers (Depends, Query, response_model)
 # that a lexical match pins down.
 retrieval_mode: bm25_hybrid  # MRR@10 vs dense, see README
