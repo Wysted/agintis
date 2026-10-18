@@ -125,7 +125,7 @@ MIN_VECTOR_VERSION = (0, 8, 4)
 
 # Alembic head this build was written for. Bump together with every new migration (a unit test
 # compares it with the script directory); the startup check refuses any other schema revision.
-SCHEMA_HEAD_REVISION = "0005"
+SCHEMA_HEAD_REVISION = "0006"
 
 logger = logging.getLogger(__name__)
 
@@ -468,7 +468,7 @@ class Container:
             raise StartupError(str(exc)) from exc
 
     async def require_bm25_index(self) -> None:
-        """StartupError unless pg_textsearch and the BM25 index exist (`bm25_hybrid` needs them)."""
+        """StartupError unless pg_textsearch is installed and loaded (`bm25_hybrid` needs it)."""
         try:
             await verify_bm25_index(self.engine)
         except TextSearchConfigError as exc:

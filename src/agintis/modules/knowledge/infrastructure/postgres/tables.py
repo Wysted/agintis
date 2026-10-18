@@ -6,6 +6,8 @@ migration. Changing the embedding model to another dimension needs a NEW migrati
 column, drop/rebuild the HNSW index) plus re-embedding every chunk.
 """
 
+import hashlib
+
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     CheckConstraint,
@@ -32,9 +34,21 @@ TEXT_SEARCH_CONFIG = "public.es_unaccent"
 READY_SOURCE_INDEX = "uq_documents_ready_source"
 DOCUMENT_FK = "fk_chunks_document_tenant"
 METADATA_INDEX_PREFIX = "ix_chunks_meta_"
-# BM25 index (pg_textsearch) on chunks.text, named by `to_bm25query`. Migration 0005 creates it
-# only where the extension is available, so it is not declared on the table below.
-BM25_INDEX = "ix_chunks_text_bm25"
+# One partial BM25 index (pg_textsearch) on chunks.text per tenant, named by `to_bm25query`, so
+# BM25 statistics (IDF, average length) never mix tenants. Created by revision 0006 and by the
+# first ingest of a tenant, only where the extension is loaded, so not declared below.
+BM25_INDEX_PREFIX = "ix_chunks_bm25_"
+_BM25_INDEX_DIGEST_CHARS = 16
+
+
+def bm25_index_name(tenant_id: str) -> str:
+    """Name of the tenant's BM25 index: tenant ids are free strings, identifiers max 63 chars.
+
+    Revision 0006 computes the same name in SQL (a test pins both).
+    """
+    digest = hashlib.sha256(tenant_id.encode()).hexdigest()[:_BM25_INDEX_DIGEST_CHARS]
+    return f"{BM25_INDEX_PREFIX}{digest}"
+
 
 _STATUSES = ", ".join(f"'{status.value}'" for status in DocumentStatus)
 

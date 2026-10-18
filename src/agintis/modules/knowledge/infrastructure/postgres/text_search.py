@@ -3,7 +3,7 @@
 `tsv` is a generated column, so its text search configuration is fixed by the migration. A query
 parsed with another configuration (other stemmer, other stop words, no `unaccent`) silently
 matches little or nothing, with no error anywhere: this check turns that into a startup failure.
-`verify_bm25_index` does the same for the optional BM25 index of `retrieval_mode: bm25_hybrid`.
+`verify_bm25_index` does the same for pg_textsearch, which `retrieval_mode: bm25_hybrid` needs.
 """
 
 import re
@@ -11,8 +11,6 @@ import re
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
-
-from agintis.modules.knowledge.infrastructure.postgres.tables import BM25_INDEX
 
 # The generation expression as the catalog deparses it: `to_tsvector('cfg'::regconfig, text)`.
 _GENERATION_CONFIG = re.compile(r"to_tsvector\('((?:[^']|'')+)'::regconfig\s*,")
@@ -25,13 +23,10 @@ _GENERATION_EXPRESSION = text(
 )
 
 
-_BM25_INDEX_ON_CHUNKS = text(
+_PG_TEXTSEARCH = text(
     "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_textsearch'), "
     # Set by the library once loaded (shared_preload_libraries).
-    "current_setting('pg_textsearch.library_version', true) IS NOT NULL, "
-    "EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
-    "JOIN pg_am am ON am.oid = c.relam "
-    "WHERE i.indrelid = to_regclass('chunks') AND c.relname = :name AND am.amname = 'bm25')"
+    "current_setting('pg_textsearch.library_version', true) IS NOT NULL"
 )
 
 
@@ -73,23 +68,24 @@ async def verify_text_search_config(engine: AsyncEngine, config: str) -> None:
 
 
 async def verify_bm25_index(engine: AsyncEngine) -> None:
-    """Raise `TextSearchConfigError` unless pg_textsearch and the BM25 index on chunks exist."""
+    """Raise `TextSearchConfigError` unless pg_textsearch is installed and loaded.
+
+    The per-tenant BM25 indexes are not checked here: ingest creates a tenant's index, and a
+    search of a tenant whose chunks have none fails with its own `TextSearchConfigError`.
+    """
     async with engine.connect() as conn:
-        row = (await conn.execute(_BM25_INDEX_ON_CHUNKS, {"name": BM25_INDEX})).one()
-    has_extension, is_loaded, has_index = (bool(value) for value in row)
+        has_extension, is_loaded = (
+            bool(value) for value in (await conn.execute(_PG_TEXTSEARCH)).one()
+        )
     if not has_extension:
         raise TextSearchConfigError(
             "retrieval_mode bm25_hybrid needs the pg_textsearch extension, which this database "
-            "lacks: use the project's Postgres image (docker/postgres; migration 0005 creates "
-            "it, or lists the statements if it was skipped), or switch those profiles to hybrid"
+            "lacks: use the project's Postgres image (docker/postgres; migrations 0005/0006 "
+            "create it and the indexes, or list the statements if they were skipped), or "
+            "switch those profiles to hybrid"
         )
     if not is_loaded:
         raise TextSearchConfigError(
             "retrieval_mode bm25_hybrid needs pg_textsearch in shared_preload_libraries "
             "(the project's Postgres image sets it): restart the server with it"
-        )
-    if not has_index:
-        raise TextSearchConfigError(
-            f"retrieval_mode bm25_hybrid needs the BM25 index {BM25_INDEX} on chunks: see "
-            "migration 0005 for the statement to run as a privileged role"
         )

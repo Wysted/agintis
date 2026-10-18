@@ -16,14 +16,17 @@ import agintis.modules.knowledge.infrastructure.postgres.tables  # noqa: F401
 from agintis.bootstrap.settings import EmbeddingsSettings, get_settings
 from agintis.modules.conversations.infrastructure.postgres.tables import THREADS_ORDER_INDEX
 from agintis.modules.knowledge.infrastructure.postgres.tables import (
-    BM25_INDEX,
+    BM25_INDEX_PREFIX,
     METADATA_INDEX_PREFIX,
 )
 from agintis.platform.db import EXTERNAL_TABLES, metadata
 
 # Indexes with a COLLATE / expression part: reflection loses it, so the drift check would always
-# report them. The BM25 index exists only where pg_textsearch is available (revision 0005).
-UNCOMPARABLE_INDEXES = frozenset({THREADS_ORDER_INDEX, BM25_INDEX})
+# report them.
+UNCOMPARABLE_INDEXES = frozenset({THREADS_ORDER_INDEX})
+# Indexes that exist only where something else created them: the per-field metadata indexes
+# (`cli.indexes`) and the per-tenant BM25 indexes (revision 0006 and ingest, with pg_textsearch).
+UNMANAGED_INDEX_PREFIXES = (METADATA_INDEX_PREFIX, BM25_INDEX_PREFIX)
 
 # Serializes concurrent `alembic upgrade head` runs (two hosts): held until the migration
 # transaction ends. Distinct from the checkpointer SETUP_LOCK_KEY (different hash input).
@@ -53,11 +56,11 @@ def include_object(
 ) -> bool:
     """Skip tables owned by other libraries (LangGraph checkpointer) and their indexes, the
     expression indexes Alembic cannot reflect faithfully (guarded by their own tests) and the
-    per-field metadata indexes `cli.indexes` manages (they exist only where it created them)."""
+    indexes created outside Alembic's model (`UNMANAGED_INDEX_PREFIXES`)."""
     if (
         type_ == "index"
         and name is not None
-        and (name in UNCOMPARABLE_INDEXES or name.startswith(METADATA_INDEX_PREFIX))
+        and (name in UNCOMPARABLE_INDEXES or name.startswith(UNMANAGED_INDEX_PREFIXES))
     ):
         return False
     if type_ == "table":

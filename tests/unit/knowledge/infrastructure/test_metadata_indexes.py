@@ -22,6 +22,7 @@ from agintis.modules.knowledge.infrastructure.postgres import (
 from agintis.modules.knowledge.infrastructure.postgres.chunks import MAX_EF_SEARCH
 from agintis.modules.knowledge.infrastructure.postgres.fields import chunk_fields
 from agintis.modules.knowledge.infrastructure.postgres.indexes import MAX_IDENTIFIER_LENGTH
+from agintis.modules.knowledge.infrastructure.postgres.tables import bm25_index_name
 from agintis.platform.db import compile_filter, create_engine, create_unpooled_engine
 from agintis.shared_kernel.criteria import Filter
 
@@ -99,6 +100,15 @@ class TestIndexNames:
     def test_a_name_at_the_limit_is_kept_as_is(self) -> None:
         field = _field("y" * (MAX_IDENTIFIER_LENGTH - len("ix_chunks_meta_")))
         assert metadata_index_name(field) == f"ix_chunks_meta_{field.name}"
+
+
+class TestBm25IndexName:
+    def test_names_are_the_prefix_plus_a_short_sha256_of_the_tenant(self) -> None:
+        tenant = "x'; DROP TABLE chunks; --" + "t" * 100
+        digest = hashlib.sha256(tenant.encode()).hexdigest()[:16]
+        assert bm25_index_name(tenant) == f"ix_chunks_bm25_{digest}"
+        assert len(bm25_index_name(tenant)) <= MAX_IDENTIFIER_LENGTH
+        assert bm25_index_name("a") != bm25_index_name("b")
 
 
 def _row(spec: MetadataIndexSpec, **overrides: object) -> CatalogIndex:

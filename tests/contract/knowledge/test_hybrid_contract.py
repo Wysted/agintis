@@ -3,16 +3,20 @@
 Same guarantees as the dense search: tenant isolation, READY-only serving, filters applied in
 BOTH branches, deterministic order. The fake implements simplified lexical scorers (AND / OR of
 accent-free terms); the texts below only use words every backend tokenizes the same way. The
-Postgres BM25 branch needs pg_textsearch and its index (the project's DB image).
+Postgres BM25 branch needs pg_textsearch (the project's DB image); each tenant gets its own BM25
+index at its first ingest.
 """
 
+import asyncio
+import re
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -27,8 +31,9 @@ from agintis.modules.knowledge.domain import (
 from agintis.modules.knowledge.infrastructure.postgres import (
     PgChunkRepository,
     PgDocumentRepository,
+    TextSearchConfigError,
 )
-from agintis.modules.knowledge.infrastructure.postgres.tables import BM25_INDEX
+from agintis.modules.knowledge.infrastructure.postgres.tables import bm25_index_name
 from agintis.platform.db import create_session_factory
 from agintis.shared_kernel.criteria import Filter, UnknownFieldError
 from agintis.shared_kernel.ids import ChunkId, DocumentId, TenantId
@@ -176,7 +181,7 @@ async def _planner_forced(url: URL, options: str) -> AsyncIterator[tuple[Repos, 
         repos = Repos(PgDocumentRepository(factory), PgChunkRepository(factory))
         try:
             await repos.chunks.search_bm25(A, QUERY, None, k=1)
-        except DBAPIError as exc:  # no pg_textsearch / no index: an old pgvector-only server
+        except DBAPIError as exc:  # no pg_textsearch: an old pgvector-only server
             skip_or_fail(f"BM25 search unavailable: {exc.orig.__class__.__name__}")
         yield repos, engine
     finally:
@@ -211,8 +216,29 @@ def _plan_nodes(node: dict[str, Any]) -> Iterator[dict[str, Any]]:
         yield from _plan_nodes(child)
 
 
-async def _bm25_plan(repos: Repos, engine: AsyncEngine) -> list[dict[str, Any]]:
-    """Plan nodes of the statement `search_bm25` sends, explained on the same engine."""
+_PYFORMAT = re.compile(r"%\((\w+)\)s")
+
+
+def _generic(statement: str) -> str:
+    """`statement` with psycopg's `%(name)s` placeholders as `$n`, for EXPLAIN (GENERIC_PLAN)."""
+    names: list[str] = []
+
+    def number(match: re.Match[str]) -> str:
+        if match.group(1) not in names:
+            names.append(match.group(1))
+        return f"${names.index(match.group(1)) + 1}"
+
+    return _PYFORMAT.sub(number, statement).replace("%%", "%")
+
+
+async def _bm25_plan(
+    repos: Repos, engine: AsyncEngine, *, generic: bool = False
+) -> list[dict[str, Any]]:
+    """Plan nodes of the statement `search_bm25` sends, explained on the same engine.
+
+    `generic` explains the plan Postgres switches to for a statement prepared and run often
+    (psycopg prepares after a few runs): it never sees the bound values.
+    """
     sent: list[tuple[str, Any]] = []
 
     def record(conn: Any, cursor: Any, statement: str, parameters: Any, *args: Any) -> None:
@@ -226,7 +252,11 @@ async def _bm25_plan(repos: Repos, engine: AsyncEngine) -> list[dict[str, Any]]:
         event.remove(engine.sync_engine, "before_cursor_execute", record)
     ((statement, parameters),) = sent
     async with engine.connect() as conn:
-        result = await conn.exec_driver_sql(f"EXPLAIN (FORMAT JSON) {statement}", parameters)
+        if generic:
+            explain = f"EXPLAIN (GENERIC_PLAN, FORMAT JSON) {_generic(statement)}"
+            result = await conn.exec_driver_sql(explain)
+        else:
+            result = await conn.exec_driver_sql(f"EXPLAIN (FORMAT JSON) {statement}", parameters)
         plan = result.scalar_one()
     return list(_plan_nodes(plan[0]["Plan"]))
 
@@ -273,6 +303,25 @@ class TestBm25Branch:
         foreign = Filter.eq("tenant_id", B)
         assert await repos.chunks.search_bm25(A, QUERY, foreign, k=10) == []
 
+    async def test_a_tenant_without_chunks_finds_nothing(self, bm25_repos: Repos) -> None:
+        repos = bm25_repos
+        await repos.documents.save(_doc(A, "d"))
+        await repos.chunks.add_many([_chunk(A, "d", "c1", EXACT_TEXT)], [NEAR])
+        assert await repos.chunks.search_bm25(TenantId(f"t-{uuid4().hex}"), QUERY, None, 5) == []
+
+    async def test_a_hostile_tenant_id_is_data(self, bm25_repos: Repos) -> None:
+        repos = bm25_repos
+        hostile = TenantId(f"x'; DROP TABLE chunks; -- \\ %s {uuid4().hex}")
+        await repos.documents.save(_doc(hostile, "dh"))
+        await repos.documents.save(_doc(A, "da"))
+        mine = _chunk(hostile, "dh", "c1", EXACT_TEXT)
+        await repos.chunks.add_many([mine], [NEAR])
+        await repos.chunks.add_many([_chunk(A, "da", "c1", EXACT_TEXT)], [NEAR])
+        assert [h.chunk.id for h in await repos.chunks.search_bm25(hostile, QUERY, None, 5)] == [
+            mine.id
+        ]
+        assert {h.chunk.tenant_id for h in await repos.chunks.search_bm25(A, QUERY, None, 5)} == {A}
+
     async def test_filters_and_validation(self, bm25_repos: Repos) -> None:
         repos = bm25_repos
         await repos.documents.save(_doc(A, "d"))
@@ -309,7 +358,8 @@ class TestBm25WithoutIndex:
         await repos.documents.save(_doc(A, "d"))
         match = _chunk(A, "d", "c1", EXACT_TEXT)
         await repos.chunks.add_many([match, _chunk(A, "d", "c2", OTHER_TEXT)], [NEAR, NEAR])
-        assert BM25_INDEX not in {n.get("Index Name") for n in await _bm25_plan(repos, engine)}
+        plan = await _bm25_plan(repos, engine)
+        assert bm25_index_name(A) not in {n.get("Index Name") for n in plan}
         hits = await repos.chunks.search_bm25(A, QUERY, None, k=10)
         assert [h.chunk.id for h in hits] == [match.id]
 
@@ -341,9 +391,92 @@ class TestBm25IndexPath:
         await repos.documents.save(_doc(A, "d"))
         await repos.chunks.add_many([_chunk(A, "d", "c1", EXACT_TEXT)], [NEAR])
         nodes = await _bm25_plan(repos, engine)
-        assert BM25_INDEX in {n.get("Index Name") for n in nodes}
+        assert bm25_index_name(A) in {n.get("Index Name") for n in nodes}
         # A `<@>` condition in a Filter re-scores every row the index scan returns.
         assert not [n["Filter"] for n in nodes if "<@>" in n.get("Filter", "")]
+
+    async def test_a_generic_plan_can_still_use_the_partial_index(
+        self, pg_bm25: tuple[Repos, AsyncEngine]
+    ) -> None:
+        """The tenant is a literal: from a bound `$n` the planner could not prove the index's
+        `tenant_id = '<tenant>'` predicate."""
+        repos, engine = pg_bm25
+        await repos.documents.save(_doc(A, "d"))
+        await repos.chunks.add_many([_chunk(A, "d", "c1", EXACT_TEXT)], [NEAR])
+        nodes = await _bm25_plan(repos, engine, generic=True)
+        assert bm25_index_name(A) in {n.get("Index Name") for n in nodes}
+
+
+async def _bm25_indexes(engine: AsyncEngine) -> dict[str, str]:
+    """{name: predicate} of the bm25 indexes on chunks."""
+    async with engine.connect() as conn:
+        rows = await conn.execute(
+            text(
+                "SELECT c.relname, pg_get_expr(i.indpred, i.indrelid) FROM pg_index i "
+                "JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_am am ON am.oid = c.relam "
+                "WHERE i.indrelid = 'chunks'::regclass AND am.amname = 'bm25'"
+            )
+        )
+        return {str(name): str(predicate) for name, predicate in rows}
+
+
+@pytest.mark.integration
+class TestBm25TenantIndexes:
+    """Postgres only: one partial BM25 index per tenant, created by its first ingest."""
+
+    async def test_the_first_ingest_creates_the_tenants_index_and_later_ones_reuse_it(
+        self, pg_bm25: tuple[Repos, AsyncEngine]
+    ) -> None:
+        repos, engine = pg_bm25
+        tenant = TenantId(f"t-{uuid4().hex}")
+        assert bm25_index_name(tenant) not in await _bm25_indexes(engine)
+        for doc in ("d1", "d2", "d3"):
+            await repos.documents.save(_doc(tenant, f"{tenant}-{doc}"))
+        # Two first ingests at once must not fail on the catalog race.
+        await asyncio.gather(
+            *(
+                repos.chunks.add_many(
+                    [_chunk(tenant, f"{tenant}-d{n}", f"c{n}", EXACT_TEXT)], [NEAR]
+                )
+                for n in (1, 2)
+            )
+        )
+        await repos.chunks.add_many([_chunk(tenant, f"{tenant}-d3", "c3", EXACT_TEXT)], [NEAR])
+        indexes = await _bm25_indexes(engine)
+        assert indexes[bm25_index_name(tenant)] == f"(tenant_id = '{tenant}'::text)"
+        assert len(await repos.chunks.search_bm25(tenant, QUERY, None, 10)) == 3
+
+    async def test_term_weights_never_mix_tenants(self, pg_bm25: tuple[Repos, AsyncEngine]) -> None:
+        """A term frequent in tenant A keeps its full weight in tenant B."""
+        repos, _ = pg_bm25
+        a, b = TenantId(f"a-{uuid4().hex}"), TenantId(f"b-{uuid4().hex}")
+        await repos.documents.save(_doc(b, f"{b}-d"))
+        target = _chunk(b, f"{b}-d", "c0", "La afiliación es obligatoria")
+        fillers = [_chunk(b, f"{b}-d", f"c{n}", OTHER_TEXT) for n in range(1, 4)]
+        await repos.chunks.add_many([target, *fillers], [NEAR] * 4)
+        (before,) = await repos.chunks.search_bm25(b, "afiliación", None, 10)
+
+        await repos.documents.save(_doc(a, f"{a}-d"))
+        common = [
+            Chunk(ChunkId(f"{a}-{n}"), DocumentId(f"{a}-d"), a, "p", n, f"afiliación {OTHER_TEXT}")
+            for n in range(30)
+        ]
+        await repos.chunks.add_many(common, [NEAR] * len(common))
+        (after,) = await repos.chunks.search_bm25(b, "afiliación", None, 10)
+        assert after.chunk.id == target.id
+        assert after.score == pytest.approx(before.score)
+
+    async def test_a_tenant_with_chunks_but_no_index_says_how_to_fix_it(
+        self, pg_bm25: tuple[Repos, AsyncEngine]
+    ) -> None:
+        repos, engine = pg_bm25
+        tenant = TenantId(f"t-{uuid4().hex}")
+        await repos.documents.save(_doc(tenant, f"{tenant}-d"))
+        await repos.chunks.add_many([_chunk(tenant, f"{tenant}-d", "c1", EXACT_TEXT)], [NEAR])
+        async with engine.begin() as conn:  # e.g. ingested before pg_textsearch was loaded
+            await conn.execute(text(f'DROP INDEX "{bm25_index_name(tenant)}"'))
+        with pytest.raises(TextSearchConfigError, match=r"no BM25 index.*alembic downgrade 0005"):
+            await repos.chunks.search_bm25(tenant, QUERY, None, 10)
 
 
 class TestHybridSearch:

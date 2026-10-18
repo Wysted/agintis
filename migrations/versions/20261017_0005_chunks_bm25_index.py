@@ -19,7 +19,7 @@ as a privileged role on a server that preloads the library
         USING bm25 (text) WITH (text_config = 'public.es_unaccent');
 
 The text configuration is the one `chunks.tsv` uses (revision 0001), so both lexical legs
-tokenize alike.
+tokenize alike. Revision 0006 replaces this index with one per tenant.
 """
 
 import logging
@@ -39,12 +39,8 @@ logger = logging.getLogger("alembic.runtime.migration")
 # server NOTICEs, so the reason is logged from Python.
 SKIP_REASON_SETTING = "agintis.bm25_skip_reason"
 
-# shortcut: one index over every tenant and profile, so BM25 IDF statistics are global (a big
-# tenant shifts another tenant's term weights) and filters apply AFTER scoring: a query of a
-# small tenant/profile scores the matches of every tenant (pending and superseded rows too)
-# until LIMIT rows survive the filters. Only statement_timeout bounds that, and a timeout fails
-# the run with retrieval_unavailable. Move to partial indexes per tenant (or partitioning) when
-# tenants of very different sizes or vocabularies share a database.
+# One index over every tenant mixes their BM25 statistics: revision 0006 replaces it with one
+# partial index per tenant.
 CREATE_BM25_INDEX = f"""
 DO $$
 BEGIN

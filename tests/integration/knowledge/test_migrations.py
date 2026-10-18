@@ -24,6 +24,7 @@ from agintis.modules.knowledge.infrastructure.postgres import (
     TextSearchConfigError,
     verify_bm25_index,
 )
+from agintis.modules.knowledge.infrastructure.postgres.tables import bm25_index_name
 from agintis.platform.db import DatabaseCheckError, check_database, create_engine
 from tests.conftest import skip_or_fail
 from tests.support.postgres import (
@@ -98,26 +99,59 @@ def test_upgrade_downgrade_round_trip_leaves_no_schema_behind(empty_database: UR
     assert {"documents", "chunks"} <= _tables(empty_database)
 
 
-def _has_bm25_index(url: URL) -> bool:
-    return bool(_query(url, "SELECT 1 FROM pg_indexes WHERE indexname = 'ix_chunks_text_bm25'"))
+def _bm25_indexes(url: URL) -> set[str]:
+    rows = _query(
+        url,
+        "SELECT c.relname FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+        "JOIN pg_am am ON am.oid = c.relam "
+        "WHERE i.indrelid = 'chunks'::regclass AND am.amname = 'bm25'",
+    )
+    return {str(row[0]) for row in rows}
 
 
 def _pg_textsearch_available(url: URL) -> bool:
     return bool(_query(url, "SELECT 1 FROM pg_available_extensions WHERE name = 'pg_textsearch'"))
 
 
-def test_the_bm25_index_exists_only_where_pg_textsearch_is_available(
-    empty_database: URL,
-) -> None:
-    """Revision 0005 is a no-op on servers without the extension (managed Postgres)."""
+# A quote and a semicolon: the migration must quote it like any tenant.
+TENANTS = ("default", "o'brien; --")
+
+
+def _add_tenant_rows(url: URL) -> None:
+    vector = "[" + ",".join(["0.5"] * DIM) + "]"
+    with psycopg.connect(libpq_dsn(url)) as conn:
+        for n, tenant in enumerate(TENANTS):
+            conn.execute(
+                "INSERT INTO documents (id, tenant_id, profile, source_uri, title, mime_type, "
+                "content_hash, profile_fingerprint, status, created_at) "
+                "VALUES (%s, %s, 'p', 'file:///x', 'x', 'text/plain', 'h', 'fp', 'ready', now())",
+                (f"d{n}", tenant),
+            )
+            conn.execute(
+                "INSERT INTO chunks (id, document_id, tenant_id, profile, ordinal, text, "
+                "embedding) VALUES (%s, %s, %s, 'p', 0, 'afiliación', %s)",
+                (f"c{n}", f"d{n}", tenant, vector),
+            )
+
+
+def test_bm25_indexes_exist_only_where_pg_textsearch_is_available(empty_database: URL) -> None:
+    """0005 = one global index, 0006 = one per tenant already in chunks (named like ingest
+    names them); both are no-ops on servers without the extension (managed Postgres)."""
+    available = _pg_textsearch_available(empty_database)
     config = alembic_config(empty_database, embedding_dim=DIM)
+    run_alembic(command.upgrade, config, "0005")
+    assert _bm25_indexes(empty_database) == ({"ix_chunks_text_bm25"} if available else set())
+    _add_tenant_rows(empty_database)
     run_alembic(command.upgrade, config, "head")
-    assert _has_bm25_index(empty_database) == _pg_textsearch_available(empty_database)
+    per_tenant = {bm25_index_name(tenant) for tenant in TENANTS}
+    assert _bm25_indexes(empty_database) == (per_tenant if available else set())
+    run_alembic(command.downgrade, config, "0005")
+    assert _bm25_indexes(empty_database) == ({"ix_chunks_text_bm25"} if available else set())
     run_alembic(command.downgrade, config, "0004")
-    assert not _has_bm25_index(empty_database)
+    assert _bm25_indexes(empty_database) == set()
 
 
-async def test_revision_0005_creates_what_the_bm25_boot_check_needs(empty_database: URL) -> None:
+async def test_the_migrations_create_what_the_bm25_boot_check_needs(empty_database: URL) -> None:
     if not _pg_textsearch_available(empty_database):
         skip_or_fail("pg_textsearch not available: use the docker/postgres image")
     config = alembic_config(empty_database, embedding_dim=DIM)
@@ -126,10 +160,7 @@ async def test_revision_0005_creates_what_the_bm25_boot_check_needs(empty_databa
         with pytest.raises(TextSearchConfigError, match="pg_textsearch"):
             await verify_bm25_index(engine)
         run_alembic(command.upgrade, config, "head")
-        await verify_bm25_index(engine)
-        run_alembic(command.downgrade, config, "0004")  # the extension stays, the index goes
-        with pytest.raises(TextSearchConfigError, match="ix_chunks_text_bm25"):
-            await verify_bm25_index(engine)
+        await verify_bm25_index(engine)  # the per-tenant indexes come from ingest
 
 
 def test_upgrade_waits_for_a_concurrent_migrator(empty_database: URL) -> None:
@@ -180,7 +211,7 @@ class TestUnprivilegedMigrator:
         assert {"documents", "chunks"} <= _tables(role_url)
         # pg_textsearch needs a superuser: the role skips it instead of failing, and says so
         # (a server NOTICE would be dropped by psycopg).
-        assert not _has_bm25_index(role_url)
+        assert not _bm25_indexes(role_url)
         if _pg_textsearch_available(admin):
             assert f"role {ROLE} cannot CREATE EXTENSION pg_textsearch" in caplog.text
 

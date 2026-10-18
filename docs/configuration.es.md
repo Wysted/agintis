@@ -20,7 +20,7 @@ estas variables se ignoran allí (son rutas/URL del host); usa las variantes `AP
 | `APP_ENV` | `local` | no | no | `local`, `test` o `prod`. El tenant por defecto (`HTTP_DEFAULT_TENANT`) se respeta solo con un `APP_ENV=local` EXPLÍCITO. |
 | `DATABASE_URL` | none | yes | yes | URL de SQLAlchemy, debe comenzar con `postgresql+psycopg://`. |
 | `LOG_LEVEL` | `INFO` | no | no | `DEBUG`, `INFO`, `WARNING`, `ERROR` o `CRITICAL`. |
-| `STARTUP_CHECKS` | `true` | no | no | `false` omite TODAS las verificaciones de arranque (pgvector, head de Alembic, configuración de búsqueda de texto, índice BM25 si un perfil usa `bm25_hybrid`, tablas del checkpointer, perfiles LLM, precalentamiento del tokenizer, modelo TEI servido). Solo para tests y herramientas; nunca en producción. |
+| `STARTUP_CHECKS` | `true` | no | no | `false` omite TODAS las verificaciones de arranque (pgvector, head de Alembic, configuración de búsqueda de texto, pg_textsearch si un perfil usa `bm25_hybrid`, tablas del checkpointer, perfiles LLM, precalentamiento del tokenizer, modelo TEI servido). Solo para tests y herramientas; nunca en producción. |
 
 ## Base de datos (`DATABASE_*`)
 

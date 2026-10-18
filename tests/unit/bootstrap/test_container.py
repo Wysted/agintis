@@ -389,7 +389,7 @@ async def test_the_bm25_index_is_checked_only_when_a_profile_uses_bm25_hybrid(
 
     async def missing(engine: object) -> None:
         checked.append(engine)
-        raise TextSearchConfigError("needs the BM25 index ix_chunks_text_bm25")
+        raise TextSearchConfigError("needs the pg_textsearch extension")
 
     monkeypatch.setattr("agintis.bootstrap.container.check_database", database_ok)
     monkeypatch.setattr("agintis.bootstrap.container.verify_bm25_index", missing)
@@ -405,7 +405,7 @@ async def test_the_bm25_index_is_checked_only_when_a_profile_uses_bm25_hybrid(
     container.profiles.register(
         RagProfile("bm", 3, 100, "simple", "structured", retrieval_mode=BM25_HYBRID_RETRIEVAL_MODE)
     )
-    with pytest.raises(StartupError, match="BM25 index"):
+    with pytest.raises(StartupError, match="pg_textsearch"):
         async with container:
             pass
     assert checked == [container.engine]

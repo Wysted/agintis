@@ -8,7 +8,7 @@ Each question is retrieved with ITS profile and NO filters (raw retrieval: the l
 used to judge the hits), against the configured database, READ-ONLY (every connection opens with
 `default_transaction_read_only=on`, so a bug cannot write). The profile's `top_k` is
 raised to the largest `--k`, `--mode` overrides its `retrieval_mode` (`both` runs dense then
-hybrid; `all`, the default, also bm25_hybrid where the database has its BM25 index) and the
+hybrid; `all`, the default, also bm25_hybrid where the database has pg_textsearch) and the
 reranker is off unless `--rerank` (it is slow on CPU and would blur the comparison of the
 retrieval modes). A hit is a chunk holding the expected snippet whose metadata
 matches the locator (`agintis.cli.eval_metrics`). The query is embedded through the configured
@@ -125,7 +125,7 @@ from agintis.shared_kernel.ids import TenantId
 
 BOTH = "both"
 ALL = "all"
-# Mode sets of `--mode`; `all` skips bm25_hybrid (with a note) where its index is missing.
+# Mode sets of `--mode`; `all` skips bm25_hybrid (with a note) where pg_textsearch is missing.
 MODE_SETS = {
     BOTH: (DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE),
     ALL: (DENSE_RETRIEVAL_MODE, HYBRID_RETRIEVAL_MODE, BM25_HYBRID_RETRIEVAL_MODE),
@@ -182,8 +182,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=ALL,
         help=(
             "retrieval mode to measure: one mode, `both` (dense, hybrid) or `all` (both plus "
-            "bm25_hybrid, skipped with a note when the database lacks the pg_textsearch BM25 "
-            "index; an explicit bm25_hybrid fails there) (default: %(default)s)"
+            "bm25_hybrid, skipped with a note when the database lacks pg_textsearch; an "
+            "explicit bm25_hybrid fails there) (default: %(default)s)"
         ),
     )
     parser.add_argument("--report", type=Path, help="write the JSON report here")
