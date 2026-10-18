@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy.exc import InterfaceError, OperationalError
 
+from agintis.agent_kit.nodes.prompts import DEFAULT_UNCITED_SYNTHESIZE_PROMPT
 from agintis.bootstrap.adapters import ChainedErrorClassifier
 from agintis.bootstrap.container import Container
 from agintis.main import create_app
@@ -190,6 +191,17 @@ class TestStatelessRun:
 
         assert model.structured_seen[0][0].content == "A-PROMPT"
         assert str(model.seen[0][0].content).startswith("S-PROMPT")
+
+    async def test_citations_none_uses_the_uncited_prompt_and_still_emits_sources(self) -> None:
+        spec = parse_agent_spec({**SPEC.model_dump(), "citations": "none"}, origin="test")
+        model = _model(("q", None, "It is 24 months."))
+
+        events = await _events(_runner(model, spec=spec), _input())
+
+        assert model.seen[0][0].content == DEFAULT_UNCITED_SYNTHESIZE_PROMPT
+        assert [e for e in events if isinstance(e, Sources)] == [
+            Sources((SourceRef("file:///a.pdf", "Doc A", "p. 2"),))
+        ]
 
     async def test_no_hits_still_answers(self) -> None:
         model = _model(("q", None, "I do not know."))

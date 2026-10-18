@@ -9,7 +9,7 @@ the `[n]` markers of the answer), the scope verdict of the clarification policy 
 ```json
 {"schema": 1, "id": "in-cmp-01", "question": "...", "expected_scope": "in",
  "answer": "... [1] ...", "answer_sha256": "...", "scope": {"level": "in", "score": 0.7312},
- "refusal_reason": null,
+ "refusal_reason": null, "citations": "inline",
  "sources": [{"n": 1, "title": "...", "locator": "p. 3", "uri": "...", "text": "..."}],
  "agent": "spensiones-rag", "models": {"analyzer": "default (openai:gpt-5.4-mini)", ...},
  "meta": {"git": "abc1234", "tenant": "default"}, "error": null}
@@ -20,7 +20,8 @@ one. `error` is the failure class of a run that did not produce an answer (`answ
 `scope.score` is null when the policy refused for lack of any evidence or the request was off-domain
 (`other`). `refusal_reason` (`out_of_scope` | `off_domain` | `social` | null; optional in old
 dumps) is why the agent's refuse path ran: a `social` turn announces no scope, so this is the only
-trace of it. `answer_sha256` binds
+trace of it. `citations` (`inline` | `none`; absent in old dumps = `inline`) is the agent's
+citation style: with `none` the answer carries no `[n]` by design. `answer_sha256` binds
 labels to what was judged: the sha256 of the canonical JSON of the question, the expected scope,
 the answer and the raw source fields (not of any rendered text); a labeler copies it into its
 rows and `cli.agreement` drops rows whose hash no longer matches. It is recomputed on load, so an
@@ -34,12 +35,14 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, get_args
 
 from agintis.agent_kit import source_text
+from agintis.agent_kit.source_text import CitationStyle
 from agintis.modules.agents_catalog.api import ScopeLevel
 
 SCHEMA_VERSION = 1
 ExpectedScope = Literal["in", "out"]
 EXPECTED_SCOPES: tuple[str, ...] = get_args(ExpectedScope)
 SCOPE_LEVELS: tuple[str, ...] = get_args(ScopeLevel)
+CITATION_STYLES: tuple[str, ...] = get_args(CitationStyle.__value__)
 
 
 class RecordFormatError(ValueError):
@@ -95,6 +98,7 @@ class AnswerRecord:
     meta: Mapping[str, Any] = field(default_factory=dict)
     error: str | None = None
     refusal_reason: str | None = None  # why the refuse path ran (None = a normal answer)
+    citations: CitationStyle = "inline"  # the agent's `citations` (`none` = no [n] by design)
 
     @property
     def rendered_sources(self) -> str:
@@ -138,6 +142,7 @@ class AnswerRecord:
             "meta": dict(self.meta),
             "error": self.error,
             "refusal_reason": self.refusal_reason,
+            "citations": self.citations,
         }
 
 
@@ -197,6 +202,9 @@ def record_from_json(row: object) -> AnswerRecord:
     sources = row.get("sources")
     if not isinstance(sources, list):
         raise RecordFormatError("'sources' must be a list")
+    citations = row.get("citations", "inline")
+    if citations not in CITATION_STYLES:
+        raise RecordFormatError(f"citations must be one of {CITATION_STYLES}")
     record = AnswerRecord(
         id=_text(row, "id"),
         question=_text(row, "question"),
@@ -209,6 +217,7 @@ def record_from_json(row: object) -> AnswerRecord:
         meta=dict(meta),
         error=_text(row, "error", nullable=True),
         refusal_reason=_text(row, "refusal_reason", nullable=True),
+        citations=citations,
     )
     if row.get("answer_sha256") != record.answer_sha256:
         raise RecordFormatError("'answer_sha256' does not match the answer and sources")

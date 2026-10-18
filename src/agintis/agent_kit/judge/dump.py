@@ -12,7 +12,7 @@ from agintis.agent_kit.judge.records import (
     ExpectedScope,
     ScopeVerdict,
 )
-from agintis.agent_kit.nodes import RagState, SourceLimits, select_sources
+from agintis.agent_kit.nodes import CitationStyle, RagState, SourceLimits, select_sources
 
 _SURROGATES = re.compile("[\ud800-\udfff]")
 
@@ -43,6 +43,7 @@ def record_from_state(
     expected_scope: ExpectedScope | None = None,
     models: Mapping[str, str] | None = None,
     meta: Mapping[str, Any] | None = None,
+    citations: CitationStyle = "inline",
 ) -> AnswerRecord:
     """The record of one finished run.
 
@@ -75,4 +76,5 @@ def record_from_state(
         models=dict(models or {}),
         meta=dict(meta or {}),
         refusal_reason=state.get("refusal_reason"),
+        citations=citations,
     )

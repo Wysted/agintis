@@ -380,6 +380,26 @@ async def test_a_failing_question_is_recorded_and_the_others_still_run() -> None
     assert records[1].answer == ""
 
 
+async def test_every_record_carries_the_agents_citation_style() -> None:
+    def respond(question: str) -> dict[str, Any]:
+        if question == "boom":
+            raise rate_limit_error()
+        return _state()
+
+    records = await run_dump(
+        FakeGraph(respond),
+        [Question("a", "ok"), Question("b", "boom")],
+        tenant=TENANT,
+        agent="a",
+        limits=SourceLimits(),
+        models={},
+        meta={},
+        citations="none",
+    )
+
+    assert [r.citations for r in records] == ["none", "none"]  # the failed one too
+
+
 async def test_each_run_gets_its_own_context_and_a_dump_tag() -> None:
     graph = FakeGraph(lambda _q: _state())
     await run_dump(

@@ -5,8 +5,9 @@ Two signals, deterministic and cheap:
    turns report no scope): the `refuse` node answered with its fixed message (no retrieval, no
    synthesis), so it IS a refusal whatever the text says.
 2. Otherwise a text heuristic over the answer: no `[n]` citation (the synthesis prompt forbids
-   citing when it does not know), at most `MAX_REFUSAL_CHARS` characters (a long answer with a
-   caveat sentence is an answer, not a blanket refusal) and a match of one of the
+   citing when it does not know; skipped for a `citations: none` agent), at most
+   `MAX_REFUSAL_CHARS` characters (a long answer with a caveat sentence is an answer, not a
+   blanket refusal) and a match of one of the
    `REFUSAL_PATTERNS` (Spanish "I don't know / I can't answer / it is not in the sources" forms,
    compared lowercase and without accents, with word boundaries).
 
@@ -41,6 +42,7 @@ import unicodedata
 from agintis.agent_kit.judge.citations import citation_numbers
 from agintis.agent_kit.judge.guard import strip_markers
 from agintis.agent_kit.judge.records import AnswerRecord
+from agintis.agent_kit.source_text import CitationStyle
 
 MAX_REFUSAL_CHARS = 600
 # Nouns for "the sources": deliberately NOT `normativa` (legal text says "la normativa no permite
@@ -120,12 +122,15 @@ def _reads_as_missing(normalized: str) -> bool:
     return contrast is None or _OFFER.search(after[contrast.start() :]) is not None
 
 
-def looks_like_refusal(answer: str) -> bool:
-    """The text heuristic alone (signal 2)."""
+def looks_like_refusal(answer: str, citations: CitationStyle = "inline") -> bool:
+    """The text heuristic alone (signal 2). The citation gate only applies to `inline` agents:
+    with `citations: none` no answer carries markers, so their absence says nothing."""
     # shortcut: the text cannot tell an adjacent-topic cited answer from a partial one, so any
     # cited answer is "not a refusal"; deterministic-only runs undercount refusals, rely on hybrid
     # or add a topic check before using deterministic mode for decisions.
-    if not answer.strip() or len(answer) > MAX_REFUSAL_CHARS or citation_numbers(answer):
+    if not answer.strip() or len(answer) > MAX_REFUSAL_CHARS:
+        return False
+    if citations == "inline" and citation_numbers(answer):
         return False
     return _reads_as_missing(normalize(answer))
 
@@ -158,4 +163,4 @@ def refused_by_scope(record: AnswerRecord) -> bool:
 
 def is_refusal(record: AnswerRecord) -> bool:
     """The agent refused (scope `out`) or said it does not know (text heuristic)."""
-    return refused_by_scope(record) or looks_like_refusal(record.answer)
+    return refused_by_scope(record) or looks_like_refusal(record.answer, record.citations)

@@ -595,6 +595,20 @@ class TestSynthesize:
 
         assert "foreign script" not in caplog.text
 
+    def test_the_uncited_default_prompt_keeps_every_grounding_rule(self) -> None:
+        from agintis.agent_kit.nodes.prompts import DEFAULT_UNCITED_SYNTHESIZE_PROMPT
+
+        flat = " ".join(DEFAULT_UNCITED_SYNTHESIZE_PROMPT.split())
+        assert "using ONLY the numbered sources" in flat
+        assert "answer only part of the question" in flat
+        assert "If NO source covers the topic asked" in flat
+        assert "Do not use outside knowledge" in flat
+        assert "is not a rule" in flat
+        assert "untrusted reference text" in flat
+        assert "language and script of the question" in flat
+        assert "no [n] markers" in flat
+        assert "[1]" not in flat  # its examples carry no markers either
+
     def test_default_prompt_says_numbering_restarts_each_turn(self) -> None:
         from agintis.agent_kit.nodes.prompts import DEFAULT_SYNTHESIZE_PROMPT
 

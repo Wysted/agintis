@@ -2,7 +2,7 @@
 
 **English** | [Español](README.es.md)
 
-**agintis** — a LangGraph template for RAG agents that cite their sources, refuse what they can't answer, and measure both.
+**agintis** — a LangGraph template for building agents: a hexagonal base (threads, streaming HTTP, LLM profiles, tracing, offline evaluation) with a configurable RAG agent that answers only from your sources, refuses what it can't answer, and measures both.
 
 It is a Python modular monolith (one
 deployable) with a hexagonal layout: domain / application / infrastructure / api per module,
@@ -10,7 +10,7 @@ Repository + Criteria for persistence, wiring only in `bootstrap/`. Agents are g
 YAML: a "case" (corpus, retrieval profiles, agent specs, calibration and eval sets) is
 configuration, so a new domain needs no new Python. The reusable graph nodes live in `agent_kit`
 (query analysis, evidence or LLM router, multi-topic retrieval, relevance sufficiency with rewrite
-loop, scope check with evidence thresholds, cited synthesis). Answer quality is measured offline
+loop, scope check with evidence thresholds, optionally cited synthesis). Answer quality is measured offline
 with retrieval metrics and an answer judge.
 
 | Module | What it owns |
@@ -131,6 +131,10 @@ plus the other extras you use (`--all-extras` includes it); Docker:
 
 ## Add an agent
 
+Two ways: a YAML spec of the generic RAG agent (no Python), or your own graph in code.
+
+### A RAG agent from YAML
+
 An agent is one YAML file in the directory `AGENTS_DIR` points to (the registry is that
 directory), parsed by `modules/agents/rag_chat/spec.py` (unknown keys are errors). The fields that
 matter:
@@ -147,16 +151,29 @@ matter:
   rewrite and retry.
 - `prompts`: per-node system prompt overrides (analyze, extract_filters, synthesize, route,
   rewrite); defaults are generic English.
+- `citations: inline | none` (default `inline`): `inline` asks for `[n]` markers in the answer;
+  `none` keeps every grounding rule (answer only from the sources, say what is missing, "I do
+  not know" otherwise) without markers, e.g. for a customer-service agent. It picks the default
+  synthesize prompt; a `prompts.synthesize` override replaces it in both modes (boot warning with
+  `none`: make sure your prompt does not ask for markers). The `sources` SSE event is sent in
+  both modes, so a UI can still list the references.
 - `models`: bind LLM roles to named profiles of `LLM_PROFILES_FILE`.
 
-The built-in `direct-chat` agent (plain LLM chat, no retrieval) is always registered.
+### An agent in code
+
+Any LangGraph graph can be an agent. Copy `modules/agents/direct_chat.py` (the built-in
+`direct-chat`, plain LLM chat with no retrieval: a one-node graph wrapped in `LangGraphRunner`)
+to a new module under `modules/agents/`, change its id, description and nodes, and register its
+runner in `bootstrap/container.py` next to `direct_chat_runner(...)`. The import contracts
+(`uv run lint-imports`) keep it off HTTP and bootstrap: it reaches business modules through their
+`api.py` and reusable nodes through `agent_kit`.
 
 ## Evaluation
 
 All offline; use a separate model family for the judge than for the generator.
 
 - Retrieval (no LLM): `uv run python -m agintis.cli.eval --profiles ... --questions case/<name>/profiles/eval_questions.jsonl [--report out.json]` (hit@k, MRR; `--route --agents DIR` adds router accuracy).
-- Answers: `cli.dump_answers --profiles ... --agents ... --agent <id> --questions <jsonl> --out answers.jsonl`, then `cli.judge --answers answers.jsonl [--report r.json]` (answer judge v11: faithfulness, citation support, relevance, refusal correctness, script mix). Set `LLM_PROFILES_FILE` (named profiles, e.g. `case/spensiones/llm_profiles.yaml`) and `EVAL_JUDGE_PROFILE` (or `--profile`); the judge refuses to grade with the answering model unless `--allow-self-judge`.
+- Answers: `cli.dump_answers --profiles ... --agents ... --agent <id> --questions <jsonl> --out answers.jsonl`, then `cli.judge --answers answers.jsonl [--report r.json]` (answer judge v11: faithfulness, citation support, relevance, refusal correctness, script mix; citation support is not applicable to a `citations: none` agent). Set `LLM_PROFILES_FILE` (named profiles, e.g. `case/spensiones/llm_profiles.yaml`) and `EVAL_JUDGE_PROFILE` (or `--profile`); the judge refuses to grade with the answering model unless `--allow-self-judge`.
 - Judge quality: `cli.agreement --labels <silver labels> --judgments <judge report>`.
 
 Rules: tune prompts, retrieval and thresholds on the calibration sets only. `eval_questions` are

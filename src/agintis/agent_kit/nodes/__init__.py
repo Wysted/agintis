@@ -35,7 +35,7 @@ from agintis.agent_kit.nodes.merge import (
     primary_weights,
     source_key,
 )
-from agintis.agent_kit.nodes.prompts import PromptSet
+from agintis.agent_kit.nodes.prompts import DEFAULT_SYNTHESIZE_PROMPTS, PromptSet
 from agintis.agent_kit.nodes.retrieve import (
     FilteredRetrieval,
     FilterLevel,
@@ -106,6 +106,7 @@ from agintis.agent_kit.nodes.sufficiency import (
 )
 from agintis.agent_kit.nodes.synthesize import SynthesizeNode, render_sources, strip_citations
 from agintis.agent_kit.nodes.topic import build_topic_graph
+from agintis.agent_kit.source_text import CitationStyle
 
 __all__ = [
     "DEFAULT_EVIDENCE_AGGREGATE",
@@ -119,6 +120,7 @@ __all__ = [
     "DEFAULT_SECONDARY_MIN_CONFIDENCE",
     "DEFAULT_SOCIAL_MESSAGE",
     "DEFAULT_SUFFICIENCY",
+    "DEFAULT_SYNTHESIZE_PROMPTS",
     "MAX_CONTEXT_CHARS",
     "MAX_HISTORY_MESSAGES",
     "MAX_SOURCES",
@@ -126,6 +128,7 @@ __all__ = [
     "REFUSE_NODE",
     "TOPIC_NODE",
     "AnalyzeNode",
+    "CitationStyle",
     "ClarificationPolicy",
     "CountSufficiency",
     "EvidenceAggregate",

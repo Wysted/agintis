@@ -4,12 +4,12 @@
 
 > La versión en inglés es la canónica: si difieren, vale la inglesa.
 
-**agintis** — una plantilla de LangGraph para agentes RAG que citan sus fuentes, rechazan lo que no pueden responder y miden ambas cosas.
+**agintis** — una plantilla de LangGraph para construir agentes: una base hexagonal (hilos, HTTP con streaming, perfiles de LLM, trazas, evaluación offline) con un agente RAG configurable que responde solo desde tus fuentes, rechaza lo que no puede responder y mide ambas cosas.
 
 Es un monolito modular en Python (un solo desplegable) con una estructura hexagonal: domain / application / infrastructure / api por módulo,
 Repository + Criteria para la persistencia y el wiring solo en `bootstrap/`. Los agentes son código genérico más YAML: un "caso" (corpus, perfiles de recuperación, especificaciones de agentes, conjuntos de calibración y de evaluación) es
 configuración, así que un dominio nuevo no necesita Python nuevo. Los nodos reutilizables del grafo viven en `agent_kit`
-(análisis de la consulta, router por evidencia o por LLM, recuperación multitema, suficiencia de relevancia con bucle de reescritura, verificación de alcance con umbrales de evidencia, síntesis con citas). La calidad de las respuestas se mide offline
+(análisis de la consulta, router por evidencia o por LLM, recuperación multitema, suficiencia de relevancia con bucle de reescritura, verificación de alcance con umbrales de evidencia, síntesis con citas opcionales). La calidad de las respuestas se mide offline
 con métricas de recuperación y un juez de respuestas.
 
 | Módulo | Qué contiene |
@@ -130,6 +130,10 @@ más los otros extras que uses (`--all-extras` lo incluye); Docker:
 
 ## Agregar un agente
 
+Dos caminos: una especificación YAML del agente RAG genérico (sin Python) o tu propio grafo en código.
+
+### Un agente RAG desde YAML
+
 Un agente es un archivo YAML en el directorio al que apunta `AGENTS_DIR` (el registro es ese
 directorio), parseado por `modules/agents/rag_chat/spec.py` (las claves desconocidas son errores). Los campos que
 importan:
@@ -146,16 +150,30 @@ importan:
   se reescribe y se reintenta.
 - `prompts`: sobrescrituras del system prompt por nodo (analyze, extract_filters, synthesize, route,
   rewrite); los valores por defecto son genéricos en inglés.
+- `citations: inline | none` (por defecto `inline`): `inline` pide marcadores `[n]` en la respuesta;
+  `none` mantiene todas las reglas de anclaje (responder solo desde las fuentes, decir qué falta y
+  "no lo sé" en otro caso) sin marcadores, p. ej. para un agente de atención al cliente. Elige el
+  prompt de synthesize por defecto; una sobrescritura `prompts.synthesize` lo reemplaza en ambos
+  modos (con `none` hay una advertencia al arrancar: asegúrate de que tu prompt no pida
+  marcadores). El evento SSE `sources` se envía en ambos modos, así que una UI puede seguir
+  listando las referencias.
 - `models`: asocia roles de LLM a perfiles con nombre de `LLM_PROFILES_FILE`.
 
-El agente integrado `direct-chat` (chat LLM simple, sin recuperación) siempre está registrado.
+### Un agente en código
+
+Cualquier grafo de LangGraph puede ser un agente. Copia `modules/agents/direct_chat.py` (el
+`direct-chat` integrado, chat LLM simple sin recuperación: un grafo de un nodo envuelto en
+`LangGraphRunner`) a un módulo nuevo bajo `modules/agents/`, cambia su id, descripción y nodos, y
+registra su runner en `bootstrap/container.py` junto a `direct_chat_runner(...)`. Los contratos de
+imports (`uv run lint-imports`) lo mantienen fuera de HTTP y de bootstrap: llega a los módulos de
+negocio por su `api.py` y a los nodos reutilizables por `agent_kit`.
 
 ## Evaluación
 
 Todo es offline; usa para el juez una familia de modelos distinta a la del generador.
 
 - Recuperación (sin LLM): `uv run python -m agintis.cli.eval --profiles ... --questions case/<name>/profiles/eval_questions.jsonl [--report out.json]` (hit@k, MRR; `--route --agents DIR` agrega la precisión del router).
-- Respuestas: `cli.dump_answers --profiles ... --agents ... --agent <id> --questions <jsonl> --out answers.jsonl`, luego `cli.judge --answers answers.jsonl [--report r.json]` (juez de respuestas v11: fidelidad, soporte de citas, relevancia, corrección del rechazo, mezcla de escrituras). Define `LLM_PROFILES_FILE` (perfiles con nombre, p. ej. `case/spensiones/llm_profiles.yaml`) y `EVAL_JUDGE_PROFILE` (o `--profile`); el juez se niega a calificar con el modelo que respondió salvo que uses `--allow-self-judge`.
+- Respuestas: `cli.dump_answers --profiles ... --agents ... --agent <id> --questions <jsonl> --out answers.jsonl`, luego `cli.judge --answers answers.jsonl [--report r.json]` (juez de respuestas v11: fidelidad, soporte de citas, relevancia, corrección del rechazo, mezcla de escrituras; el soporte de citas no aplica a un agente con `citations: none`). Define `LLM_PROFILES_FILE` (perfiles con nombre, p. ej. `case/spensiones/llm_profiles.yaml`) y `EVAL_JUDGE_PROFILE` (o `--profile`); el juez se niega a calificar con el modelo que respondió salvo que uses `--allow-self-judge`.
 - Calidad del juez: `cli.agreement --labels <silver labels> --judgments <judge report>`.
 
 Reglas: ajusta prompts, recuperación y umbrales solo con los conjuntos de calibración. Las `eval_questions` están

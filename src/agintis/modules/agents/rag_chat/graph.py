@@ -106,7 +106,7 @@ def agent_deps(spec: AgentSpec, deps: RagChatDeps) -> RagChatDeps:
 def _builder(
     spec: AgentSpec, profiles: RagProfileRegistry, deps: RagChatDeps
 ) -> StateGraph[Any, Any, Any, Any]:
-    prompts = spec.prompts.to_prompt_set()
+    prompts = spec.prompts.to_prompt_set(spec.citations)
     topic_profiles = {t.name: profiles.get(t.profile) for t in spec.topics}
     extractors = {
         t.name: FilterExtractor(

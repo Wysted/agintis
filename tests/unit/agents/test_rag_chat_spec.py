@@ -7,6 +7,10 @@ import pytest
 from langchain_core.embeddings import DeterministicFakeEmbedding
 
 from agintis.agent_kit.nodes import EvidenceTopicRouter, LlmTopicRouter, build_route_schema
+from agintis.agent_kit.nodes.prompts import (
+    DEFAULT_SYNTHESIZE_PROMPT,
+    DEFAULT_UNCITED_SYNTHESIZE_PROMPT,
+)
 from agintis.modules.agents.rag_chat import (
     AgentSpec,
     InvalidAgentSpecError,
@@ -94,6 +98,46 @@ def test_prompt_overrides_replace_only_the_given_ones() -> None:
 
     assert prompts.synthesize == "Responde."
     assert prompts.analyze.startswith("You prepare")
+
+
+class TestCitations:
+    RAW: ClassVar[dict[str, object]] = {"id": "a", "description": "d", "topics": [_topic()]}
+
+    def test_inline_is_the_default_and_keeps_the_cited_prompt(self) -> None:
+        spec = parse_agent_spec(self.RAW, origin="a.yaml")
+
+        assert spec.citations == "inline"
+        assert spec.prompts.to_prompt_set(spec.citations).synthesize == DEFAULT_SYNTHESIZE_PROMPT
+
+    def test_none_picks_the_uncited_default_prompt(self) -> None:
+        spec = parse_agent_spec({**self.RAW, "citations": "none"}, origin="a.yaml")
+
+        prompt = spec.prompts.to_prompt_set(spec.citations).synthesize
+        assert prompt == DEFAULT_UNCITED_SYNTHESIZE_PROMPT
+        assert "no [n] markers" in prompt
+        assert "Cite every statement" not in prompt
+
+    def test_a_synthesize_override_wins_in_both_styles(self) -> None:
+        for style in ("inline", "none"):
+            spec = parse_agent_spec(
+                {**self.RAW, "citations": style, "prompts": {"synthesize": "Mine."}}, origin="a"
+            )
+            assert spec.prompts.to_prompt_set(spec.citations).synthesize == "Mine."
+
+    def test_an_unknown_style_is_rejected(self) -> None:
+        with pytest.raises(InvalidAgentSpecError, match="citations"):
+            parse_agent_spec({**self.RAW, "citations": "footnotes"}, origin="a.yaml")
+
+    def test_none_with_a_custom_synthesize_prompt_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("WARNING"):
+            parse_agent_spec({**self.RAW, "citations": "none"}, origin="a")
+            assert "citations: none" not in caplog.text
+            parse_agent_spec(
+                {**self.RAW, "citations": "none", "prompts": {"synthesize": "Mine."}}, origin="a"
+            )
+        assert "does not ask for [n] markers" in caplog.text
 
 
 @pytest.mark.parametrize(

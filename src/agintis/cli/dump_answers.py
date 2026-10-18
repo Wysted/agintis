@@ -52,7 +52,7 @@ from agintis.agent_kit.judge import (
     failure_reason,
     record_from_state,
 )
-from agintis.agent_kit.nodes import SourceLimits
+from agintis.agent_kit.nodes import CitationStyle, SourceLimits
 from agintis.agent_kit.runtime import DEFAULT_RECURSION_LIMIT, AgentContext
 from agintis.bootstrap.container import Container
 from agintis.bootstrap.llm import build_chat_models
@@ -139,6 +139,7 @@ async def answer_question(
     limits: SourceLimits,
     models: Mapping[str, str],
     meta: Mapping[str, Any],
+    citations: CitationStyle = "inline",
 ) -> AnswerRecord:
     """One fresh turn of the agent; a failure becomes a record with `error` (never raises)."""
     config: RunnableConfig = {
@@ -163,6 +164,7 @@ async def answer_question(
             models=dict(models),
             meta=dict(meta),
             error=failure_reason(exc),
+            citations=citations,
         )
     return record_from_state(
         state,
@@ -173,6 +175,7 @@ async def answer_question(
         expected_scope=question.expected_scope,
         models=models,
         meta=meta,
+        citations=citations,
     )
 
 
@@ -206,6 +209,7 @@ async def dump_answers(
     limits: SourceLimits,
     models: Mapping[str, str],
     meta: Mapping[str, Any],
+    citations: CitationStyle = "inline",
     concurrency: int = DEFAULT_CONCURRENCY,
     sink: Callable[[AnswerRecord], None] | None = None,
 ) -> list[AnswerRecord]:
@@ -224,6 +228,7 @@ async def dump_answers(
                 limits=limits,
                 models=models,
                 meta=meta,
+                citations=citations,
             )
 
     tasks = [asyncio.create_task(one(q)) for q in questions]
@@ -384,6 +389,7 @@ async def run(args: argparse.Namespace, writer: DumpWriter) -> list[AnswerRecord
             limits=spec.limits,
             models=model_labels(view, spec),
             meta=meta,
+            citations=spec.citations,
             concurrency=args.concurrency,
             sink=writer.write,
         )

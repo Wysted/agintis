@@ -56,8 +56,9 @@ class JudgeResult:
     # "llm" | "deterministic": which way the verdict was reached.
     method: str
     # Why it is not ok, or why a decided verdict is what it is (counted in the aggregates):
-    # not_applicable -> "refusal" | "model_refusal" | "no_citations" | "no_expected_scope" |
-    # "empty_answer"; error -> "no_claims" | "judge_error" | ...; run_failed -> "run_failed";
+    # not_applicable -> "refusal" | "model_refusal" | "no_citations" | "citations_disabled" (the
+    # agent's `citations: none`) | "no_expected_scope" | "empty_answer"; error -> "no_claims" |
+    # "judge_error" | ...; run_failed -> "run_failed";
     # ok -> the guard code of a failed verdict ("claim_not_verbatim", "in_scope_refused"...).
     code: str | None = None
     # Judge-specific evidence (per-claim list, per-sentence list, offending markers...).

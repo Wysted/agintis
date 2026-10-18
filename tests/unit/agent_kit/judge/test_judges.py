@@ -577,6 +577,14 @@ class TestCitationSupport:
         assert result.code == "no_citations"
         assert model.structured_seen == []
 
+    async def test_an_agent_without_citations_is_not_applicable(self) -> None:
+        model = judge_model()
+        record = dataclasses.replace(make_record("El plazo es de 24 meses."), citations="none")
+        result = await CitationSupportJudge(_call(model)).judge(record)
+        assert result.status is JudgeStatus.NOT_APPLICABLE
+        assert result.code == "citations_disabled"
+        assert model.structured_seen == []
+
     async def test_a_marker_pointing_to_a_missing_source_fails_without_calling_the_model(
         self,
     ) -> None:

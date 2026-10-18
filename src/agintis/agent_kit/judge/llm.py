@@ -274,7 +274,7 @@ def refusal_signals(out_is_refusal: bool, record: AnswerRecord) -> dict[str, boo
     details so the aggregates can report how often they disagree."""
     return {
         "model_is_refusal": out_is_refusal,
-        "heuristic_refusal": looks_like_refusal(record.answer),
+        "heuristic_refusal": looks_like_refusal(record.answer, record.citations),
     }
 
 
@@ -521,6 +521,7 @@ class FaithfulnessJudge:
                     "retries": retries,
                     "cited_refusal": bool(citation_numbers(record.answer)),
                     "claims_listed": len(out.claims),
+                    "citations_disabled": record.citations == "none",
                 },
             )
         if not out.claims:
@@ -573,7 +574,8 @@ class FaithfulnessJudge:
 class CitationSupportJudge:
     """ALCE-style: does the source set a sentence cites support that sentence?
 
-    Order of business: no `[n]` marker -> not applicable; a marker pointing to a source that does
+    Order of business: an agent with `citations: none` -> not applicable (`citations_disabled`);
+    no `[n]` marker -> not applicable; a marker pointing to a source that does
     not exist -> deterministic failure (no model call); otherwise the CODE enumerates the cited
     sentences (`cited_sentences`: the same splitter the precheck uses) and the model judges
     exactly that numbered list, each next to the sources IT cites (several markers = the sources
@@ -601,6 +603,10 @@ class CitationSupportJudge:
         self._prompt = prompt
 
     async def judge(self, record: AnswerRecord) -> JudgeResult:
+        if record.citations == "none":
+            return JudgeResult.not_applicable(
+                self.name, "the agent answers without citations", "citations_disabled"
+            )
         sentences = cited_sentences(record.answer)
         if not sentences:
             return JudgeResult.not_applicable(

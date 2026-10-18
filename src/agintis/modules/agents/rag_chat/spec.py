@@ -25,10 +25,12 @@ from agintis.agent_kit.nodes import (
     DEFAULT_SECONDARY_MIN_CONFIDENCE,
     DEFAULT_SOCIAL_MESSAGE,
     DEFAULT_SUFFICIENCY,
+    DEFAULT_SYNTHESIZE_PROMPTS,
     MAX_CONTEXT_CHARS,
     MAX_HISTORY_MESSAGES,
     MAX_SOURCE_CHARS,
     MAX_SOURCES,
+    CitationStyle,
     EvidenceAggregate,
     PromptSet,
     SourceLimits,
@@ -79,8 +81,10 @@ class PromptsSpec(_Strict):
     route: str | None = Field(default=None, min_length=1, max_length=MAX_TEXT_CHARS)
     rewrite: str | None = Field(default=None, min_length=1, max_length=MAX_TEXT_CHARS)
 
-    def to_prompt_set(self) -> PromptSet:
-        return PromptSet(**self.model_dump(exclude_none=True))
+    def to_prompt_set(self, citations: CitationStyle = "inline") -> PromptSet:
+        """The prompts of the nodes; the default synthesize prompt follows `citations`."""
+        defaults = {"synthesize": DEFAULT_SYNTHESIZE_PROMPTS[citations]}
+        return PromptSet(**(defaults | self.model_dump(exclude_none=True)))
 
 
 class TopicSpec(_Strict):
@@ -167,6 +171,10 @@ class AgentSpec(_Strict):
     description: str = Field(min_length=1, max_length=MAX_TEXT_CHARS)
     topics: list[TopicSpec] = Field(min_length=1, max_length=MAX_AGENT_TOPICS)
     prompts: PromptsSpec = PromptsSpec()
+    # How the answer refers to its sources: `inline` = `[n]` markers, `none` = no markers (still
+    # grounded in the sources; the Sources event is emitted either way). Picks the default
+    # synthesize prompt; a `prompts.synthesize` override replaces it in both styles.
+    citations: CitationStyle = "inline"
     # Routing: `auto` = single when there is one topic, else the LLM router; `single` needs
     # exactly one topic; `llm` asks the ROUTER model; `evidence` asks the corpus (no model: a
     # dense probe of every topic's profile with ONE query embedding). `llm` and `evidence` need
@@ -233,6 +241,12 @@ class AgentSpec(_Strict):
                 "(equal means no widening)"
             )
         self._warn_inapplicable_knobs()
+        if self.citations == "none" and self.prompts.synthesize is not None:
+            logger.warning(
+                "agent %r: `citations: none` with a custom prompts.synthesize: make sure your "
+                "prompt does not ask for [n] markers",
+                self.id,
+            )
         if ChatRole.ROUTER in self.models and not self.uses_llm_router:
             logger.warning(
                 "agent %r: models.router is ignored (this agent's router makes no model call)",

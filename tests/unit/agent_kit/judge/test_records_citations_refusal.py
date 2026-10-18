@@ -58,6 +58,7 @@ def test_record_without_scope_or_expected_scope_roundtrips() -> None:
         ({"models": {"a": 1}}, "'models'"),
         ({"meta": []}, "'meta'"),
         ({"sources": "none"}, "'sources'"),
+        ({"citations": "footnotes"}, "citations must be one of"),
         ({"sources": [{"n": 2, "title": None, "uri": "u", "text": "t"}]}, "numbered 1..N"),
         ({"sources": [{"n": 1, "title": None, "uri": 3, "text": "t"}]}, "'uri'"),
     ],
@@ -66,6 +67,25 @@ def test_malformed_records_are_rejected(patch: dict[str, object], message: str) 
     row = {**make_record().to_json(), **patch}
     with pytest.raises(RecordFormatError, match=message):
         record_from_json(row)
+
+
+def test_a_record_without_citations_loads_as_inline_and_none_roundtrips() -> None:
+    old = make_record().to_json()
+    del old["citations"]  # a dump written before the option
+    assert record_from_json(old).citations == "inline"
+
+    record = replace(make_record("El plazo es de 24 meses."), citations="none")
+    assert record_from_json(json.loads(json.dumps(record.to_json()))) == record
+    # not part of what a label depends on
+    assert record.answer_sha256 == replace(record, citations="inline").answer_sha256
+
+
+def test_record_from_state_carries_the_citation_style() -> None:
+    state = {"answer": "a", "sources": [], "messages": []}
+    record = record_from_state(
+        state, id="x", question="q", agent="a", limits=SourceLimits(), citations="none"
+    )
+    assert record.citations == "none"
 
 
 def test_a_non_object_record_is_rejected() -> None:
@@ -629,6 +649,15 @@ def test_a_refusal_with_a_code_bracket_is_still_a_refusal() -> None:
     answer = "No encontré información sobre `items[0]` en las fuentes."
     assert looks_like_refusal(answer)
     assert not looks_like_refusal(answer + " [1]")
+
+
+def test_the_citation_gate_is_skipped_for_an_agent_without_citations() -> None:
+    answer = "No encontré información sobre eso en las fuentes [1]."
+    assert not looks_like_refusal(answer)
+    assert looks_like_refusal(answer, "none")
+    assert is_refusal(replace(make_record(answer, scope=None), citations="none"))
+    # the other gates still apply
+    assert not looks_like_refusal("El plazo es de 24 meses.", "none")
 
 
 def test_precheck_and_enumeration_see_the_same_numbers() -> None:

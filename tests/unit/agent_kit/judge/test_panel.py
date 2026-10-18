@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -468,3 +469,20 @@ async def test_the_aggregate_counts_model_refusals_with_uncited_claims_as_unchec
         "cited_refusal": 1,
         "unchecked_claims": 1,
     }
+
+
+async def test_uncited_refusal_claims_of_an_agent_without_citations_are_not_unchecked() -> None:
+    uncited = replace(
+        make_record("No lo sé; el plazo es de 30 días.", expected_scope="out"), citations="none"
+    )
+    judges = build_judges(_split_model(None, True, claim_list=(True,)), LABEL)
+
+    stats = aggregate([await judge_record(uncited, judges)], [JudgeName.FAITHFULNESS])
+
+    assert stats["faithfulness"]["model_refusals"] == {
+        "total": 1,
+        "cited_refusal": 0,
+        "unchecked_claims": 0,
+    }
+    reasons = aggregate([await judge_record(uncited, judges)], [JudgeName.CITATION_SUPPORT])
+    assert reasons["citation_support"]["reasons"] == {"citations_disabled": 1}

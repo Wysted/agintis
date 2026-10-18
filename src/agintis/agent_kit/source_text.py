@@ -9,9 +9,13 @@ hash does NOT depend on them (see `judge.records`), so a rendering change never 
 import unicodedata
 from collections.abc import Mapping, Sequence
 from itertools import groupby
-from typing import Any
+from typing import Any, Literal
 
 NO_SOURCES_TEXT = "(no sources were found for this question)"
+
+# How an answer refers to its sources: `inline` = `[n]` markers in the text, `none` = no markers
+# (the answer stays grounded in the sources; the Sources event still lists them).
+type CitationStyle = Literal["inline", "none"]
 
 
 def neutralize(text: str) -> str:
