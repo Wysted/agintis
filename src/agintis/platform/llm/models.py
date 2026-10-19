@@ -439,7 +439,10 @@ class ModelCatalog:
 
 
 # Roles whose model also writes structured output when a view USES them (the llm router binds
-# its schema like the analyzer does); the platform defaults only check the analyzer.
+# its schema like the analyzer does; the merge tie-break also uses ROUTER, but as plain text);
+# the platform defaults only check the analyzer.
+# shortcut: agents that only use merge_tiebreak (plain text) are also structured-checked for
+# ROUTER, upgrade when a tie-break-only agent needs a non-structured router model
 VIEW_STRUCTURED_ROLES: frozenset[ChatRole] = STRUCTURED_OUTPUT_ROLES | {ChatRole.ROUTER}
 
 

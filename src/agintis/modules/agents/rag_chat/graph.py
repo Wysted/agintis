@@ -12,7 +12,8 @@ thread runs, which keeps `messages` between turns).
 `route` returns `Command(goto=[Send("topic", task)...])`: ONE compiled topic subgraph
 (`extract_filters -> retrieve`, private state) runs once per selected topic in parallel and
 returns a `topic_results` entry each; `merge` interleaves them by rank (weighted towards the
-primary topic, earlier attempts' evidence last) into the numbered `sources`; `synthesize`
+primary topic, which `merge_tiebreak: llm` lets the ROUTER model pick on every merge with 2+
+topics with sources, earlier attempts' evidence last) into the numbered `sources`; `synthesize`
 emits the `Sources` event from the list it numbers (every path to the answer goes through it).
 When the sufficiency strategy says the sources are not enough, the graph goes through `rewrite`
 (a new query, `attempts + 1`; an unchanged query goes straight to synthesis)
@@ -82,9 +83,10 @@ class RagChatDeps:
 
 
 def roles_used(spec: AgentSpec) -> tuple[ChatRole, ...]:
-    """The models a run of this spec can call (the router only when it is an LLM one)."""
+    """The models a run of this spec can call (ROUTER only for the LLM router or the merge
+    tie-break)."""
     roles = [ChatRole.ANALYZER, ChatRole.SYNTHESIS]
-    if spec.uses_llm_router:
+    if spec.uses_router_model:
         roles.append(ChatRole.ROUTER)
     return tuple(roles)
 
@@ -156,7 +158,8 @@ def _builder(
             deps.retrieval, topic_profiles, extractors, spec.limits, deps.max_query_chars
         ),
     )
-    builder.add_node(MERGE, MergeSourcesNode(spec.limits, spec.primary_weight))
+    tiebreak = deps.chat_models if spec.merge_tiebreak == "llm" else None
+    builder.add_node(MERGE, MergeSourcesNode(spec.limits, spec.primary_weight, tiebreak))
     builder.add_node(
         REWRITE_NODE,
         RewriteQueryNode(

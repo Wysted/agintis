@@ -86,6 +86,14 @@ Return the names of the topics most likely to hold the answer, ordered by releva
 relevant first. Pick only topics that are really needed; one is usually enough. Use the topic
 names exactly as listed."""
 
+# Merge tie-break (`merge_tiebreak: llm`): the ROUTER model reads near-tied topics' top passages.
+# Fixed text (not in `PromptSet`): it is the prompt the tie-break was measured with offline.
+DEFAULT_MERGE_TIEBREAK_PROMPT = (
+    "You route a question to the document collection that answers it. You get the question and "
+    "passages from candidate collections, labelled by letter. Reply with ONLY the letter of the "
+    "collection whose passages best answer the question."
+)
+
 DEFAULT_REWRITE_PROMPT = """\
 A search over a knowledge base returned too few results for the user's question.
 Write ONE different search query for the same question: broader, with synonyms or alternative

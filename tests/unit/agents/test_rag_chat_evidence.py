@@ -171,6 +171,54 @@ class TestEvidenceRoutingEndToEnd:
             build_graph(_spec(), PROFILES, deps)
 
 
+class TestMergeTieBreak:
+    async def _first_source(self, spec: AgentSpec, replies: list[str]) -> tuple[str, Any]:
+        world = await World().seed()
+        model = make_model(Script([]), replies)
+        runner = rag_chat_runner(spec, PROFILES, world.deps(model))
+        events = [e async for e in runner.astream(make_input("alpha one"))]
+        (sources,) = [e for e in events if isinstance(e, Sources)]
+        return sources.items[0].source, model
+
+    async def test_off_by_default_no_extra_model_call(self) -> None:
+        # A huge margin searches both topics; the only plain call is the synthesis.
+        first, model = await self._first_source(_spec(evidence_margin=1.0), ["Answer [1]."])
+
+        assert first == "file:///a"
+        assert len(model.seen) == 1
+
+    async def test_the_router_model_reorders_near_tied_topics(self) -> None:
+        spec = _spec(evidence_margin=1.0, merge_tiebreak="llm")
+
+        first, model = await self._first_source(spec, ["B", "Answer [1]."])
+
+        assert first == "file:///b"
+        assert len(model.seen) == 2  # tie-break, then synthesis
+
+    def test_the_knob_defaults_to_none_and_is_validated(self) -> None:
+        assert _spec().merge_tiebreak == "none"
+        with pytest.raises(InvalidAgentSpecError, match="merge_tiebreak"):
+            _spec(merge_tiebreak="vibes")
+
+    def test_a_router_binding_is_used_by_the_tie_break(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("WARNING"):
+            spec = _spec(merge_tiebreak="llm", models={"router": "default"})
+            _spec(models={"router": "default"})
+
+        assert spec.uses_router_model
+        assert [r.getMessage() for r in caplog.records] == [
+            "agent 'evidence-rag': models.router is ignored (this agent makes no ROUTER model call)"
+        ]
+
+    def test_it_needs_the_router_role_and_two_topics(self) -> None:
+        assert ChatRole.ROUTER in roles_used(_spec(merge_tiebreak="llm"))
+        one_topic = {"topics": [{"name": "alpha", "description": "A", "profile": "alpha"}]}
+        with pytest.raises(InvalidAgentSpecError, match="merge_tiebreak"):
+            _spec(router="auto", merge_tiebreak="llm", **one_topic)
+
+
 class TestRewriteLoopReroutes:
     async def test_each_attempt_probes_its_own_query_once(self) -> None:
         world = await World().seed()

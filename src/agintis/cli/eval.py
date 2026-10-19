@@ -37,6 +37,7 @@ agent's max_sources) (`retrieval_cut` in the report). It sits next to the per-pr
 same mode, which is the oracle (what retrieval does when the router is always right) and is
 reused, not repeated. The report adds each question's router confidences and secondary topics.
 Questions whose profile no topic covers run plain on their own profile and are not routed.
+The routed retrieval and the routing cost ignore `merge_tiebreak`; that step was measured offline.
 
 `--router {spec,llm,evidence}` (default `spec`: each agent's own `router`) overrides the routing
 Strategy of every multi-topic agent without editing the YAML, so the LLM router and the EVIDENCE
