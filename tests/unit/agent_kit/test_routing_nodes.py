@@ -34,6 +34,8 @@ from agintis.agent_kit.nodes import (
     source_is_relevant,
     source_key,
 )
+from agintis.agent_kit.nodes.merge import TIEBREAK_PASSAGE_CHARS, TIEBREAK_PASSAGES
+from agintis.agent_kit.nodes.prompts import DEFAULT_MERGE_TIEBREAK_PROMPT
 from agintis.agent_kit.nodes.state import SourceItem
 from agintis.platform.llm import ChatRole
 from tests.fakes.llm import RaisingModel, ScriptedChatModel, chat_models_for, rate_limit_error
@@ -542,6 +544,136 @@ class TestMergeSourcesNode:
     def test_the_weight_is_validated(self) -> None:
         with pytest.raises(ValueError, match="primary_weight"):
             self._node(primary_weight=0)
+
+
+def _sources(state: dict[str, Any]) -> list[str]:
+    return [s["source"] for s in state["sources"]]
+
+
+class TestMergeTieBreak:
+    def _node(self, model: Any) -> MergeSourcesNode:
+        return MergeSourcesNode(
+            SourceLimits(), 2, chat_models_for(by_role={ChatRole.ROUTER: model})
+        )
+
+    def _state(self, **extra: Any) -> Any:
+        return _routed_state(
+            "alpha",
+            "beta",
+            query="the question",
+            topic_results=[_result("alpha", "a1", "a2", "a3"), _result("beta", "b1", "b2", "b3")],
+            **extra,
+        )
+
+    async def test_the_picked_collection_becomes_the_weighted_primary(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        model = ScriptedChatModel(replies=["B"])
+
+        with caplog.at_level("INFO"):
+            result = await self._node(model)(self._state(), runtime_for())
+
+        assert _sources(result) == ["b1", "b2", "a1", "b3", "a2", "a3"]
+        assert "Merge tie-break: alpha, beta -> beta, alpha" in caplog.messages
+
+    async def test_picking_the_router_primary_logs_no_reorder(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        model = ScriptedChatModel(replies=["A"])
+
+        with caplog.at_level("INFO"):
+            result = await self._node(model)(self._state(), runtime_for())
+
+        assert _sources(result) == ["a1", "a2", "b1", "a3", "b2", "b3"]
+        assert not any(m.startswith("Merge tie-break:") for m in caplog.messages)
+
+    async def test_the_first_standalone_valid_letter_wins(self) -> None:
+        model = ScriptedChatModel(replies=["  collection b. (not A)"])
+
+        result = await self._node(model)(self._state(), runtime_for())
+
+        assert _sources(result)[:2] == ["b1", "b2"]
+
+    @pytest.mark.parametrize("reply", ["neither", "C", "AB"])
+    async def test_an_unparsable_reply_keeps_the_router_order(
+        self, reply: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        model = ScriptedChatModel(replies=[reply])
+
+        with caplog.at_level("INFO"):
+            result = await self._node(model)(self._state(), runtime_for())
+
+        assert _sources(result) == ["a1", "a2", "b1", "a3", "b2", "b3"]
+        assert any("router order kept" in m for m in caplog.messages)
+
+    async def test_no_call_with_fewer_than_two_topics_with_sources(self) -> None:
+        model = ScriptedChatModel()  # a call would pop from an empty list
+        state: Any = _routed_state(
+            "alpha",
+            "beta",
+            query="q",
+            previous_sources=[_item("old", chunk="c-old")],  # not a candidate
+            topic_results=[_result("alpha", "a1"), _result("beta")],
+        )
+
+        result = await self._node(model)(state, runtime_for())
+
+        assert _sources(result) == ["a1", "old"]
+        assert model.seen == []
+
+    async def test_the_previous_evidence_is_not_a_candidate_and_stays_last(self) -> None:
+        model = ScriptedChatModel(replies=["B"])
+        kept = [_item("old", text="OLD TEXT", chunk="c-old")]
+
+        result = await self._node(model)(self._state(previous_sources=kept), runtime_for())
+
+        assert _sources(result) == ["b1", "b2", "a1", "old", "b3", "a2", "a3"]
+        (human,) = [m for m in model.seen[0] if isinstance(m, HumanMessage)]
+        assert "OLD TEXT" not in human.text
+        assert "Collection C" not in human.text
+
+    async def test_the_prompt_shows_the_top_passages_cut_by_letter_without_topic_names(
+        self,
+    ) -> None:
+        model = ScriptedChatModel(replies=["A"])
+        long = "x" * (TIEBREAK_PASSAGE_CHARS + 10)
+        results = [
+            {
+                "topic": topic,
+                "sources": [
+                    _item(f"{topic}{i}", text=f"{n}-{i} {long}", chunk=f"c-{topic}{i}")
+                    for i in range(TIEBREAK_PASSAGES + 1)
+                ],
+            }
+            for n, topic in enumerate(("alpha", "beta", "gamma"))
+        ]
+        state: Any = _routed_state(
+            "gamma", "alpha", "beta", messages=[HumanMessage("  raw question ")]
+        )
+        state["topic_results"] = results
+
+        await self._node(model)(state, runtime_for())
+
+        def block(letter: str, n: int) -> str:
+            texts = [f"{n}-{i} {long}"[:TIEBREAK_PASSAGE_CHARS] for i in range(2)]
+            return f"=== Collection {letter} ===\n" + "\n\n".join(texts)
+
+        (messages,) = model.seen
+        assert [type(m) for m in messages] == [SystemMessage, HumanMessage]
+        assert messages[0].text == DEFAULT_MERGE_TIEBREAK_PROMPT
+        assert messages[1].text == "Question: raw question\n\n" + "\n\n".join(
+            [block("A", 2), block("B", 0), block("C", 1)]  # router order: gamma, alpha, beta
+        )
+        assert not {"alpha", "beta", "gamma"} & set(messages[1].text.split())
+        assert TIEBREAK_PASSAGES == 2
+        assert TIEBREAK_PASSAGE_CHARS == 1500
+
+    async def test_provider_errors_propagate(self) -> None:
+        error = rate_limit_error()
+        node = self._node(RaisingModel(error=error))
+
+        with pytest.raises(type(error)):
+            await node(self._state(), runtime_for())
 
 
 def _enough(strategy: Any, *items: SourceItem) -> bool:

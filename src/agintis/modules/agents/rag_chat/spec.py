@@ -167,6 +167,7 @@ class ClarificationSpec(_Strict):
 
 
 type RouterKind = Literal["auto", "single", "llm", "evidence"]
+type MergeTieBreak = Literal["none", "llm"]
 
 
 class AgentSpec(_Strict):
@@ -205,6 +206,12 @@ class AgentSpec(_Strict):
     clarification: ClarificationSpec = ClarificationSpec()
     # Merge: items per round of the primary topic (the others contribute one).
     primary_weight: int = Field(default=DEFAULT_PRIMARY_WEIGHT, ge=1, le=MAX_PRIMARY_WEIGHT)
+    # Merge tie-break: `llm` = on every merge where 2+ routed topics returned sources, the ROUTER
+    # model reads their top passages and picks the primary (up to 1 + max_rewrites calls per
+    # turn; needs the ROUTER role and two topics). Near-tied only in the evidence router's normal
+    # bands: its `low` band sends up to `low_scope_max_topics` candidates and `router: llm` has no
+    # margin. `none` keeps the router's order.
+    merge_tiebreak: MergeTieBreak = "none"
     # Sufficiency loop: when the merged sources are not enough (`sufficiency`) the query is
     # rewritten and the topics searched again, at most `max_rewrites` times per turn (0 = never).
     # `relevance` (default) judges the hits' own evidence (rerank score only; without a reranker
@@ -235,6 +242,8 @@ class AgentSpec(_Strict):
             raise ValueError(
                 f"router {self.router!r} needs at least two topics (use 'auto' or 'single')"
             )
+        if self.merge_tiebreak == "llm" and len(self.topics) < 2:
+            raise ValueError("merge_tiebreak 'llm' needs at least two topics")
         if self.clarification.policy == "evidence" and self.router != "evidence":
             raise ValueError("clarification policy 'evidence' needs `router: evidence`")
         low_topics = self.clarification.low_scope_max_topics
@@ -250,9 +259,9 @@ class AgentSpec(_Strict):
                 "markers: make sure it does not ask for them",
                 self.id,
             )
-        if ChatRole.ROUTER in self.models and not self.uses_llm_router:
+        if ChatRole.ROUTER in self.models and not self.uses_router_model:
             logger.warning(
-                "agent %r: models.router is ignored (this agent's router makes no model call)",
+                "agent %r: models.router is ignored (this agent makes no ROUTER model call)",
                 self.id,
             )
         if self.min_sources > self.max_sources:
@@ -284,6 +293,11 @@ class AgentSpec(_Strict):
     def uses_llm_router(self) -> bool:
         """Whether a question costs a ROUTER model call (one topic never does)."""
         return self.router == "llm" or (self.router == "auto" and len(self.topics) > 1)
+
+    @property
+    def uses_router_model(self) -> bool:
+        """Whether a run can call the ROUTER model: the LLM router or the merge tie-break."""
+        return self.uses_llm_router or self.merge_tiebreak == "llm"
 
     @property
     def uses_evidence_router(self) -> bool:
