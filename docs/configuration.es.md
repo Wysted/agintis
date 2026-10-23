@@ -201,6 +201,14 @@ Las lee `docker-compose.yml` (no `Settings`). Los secretos viven en `.env`, que 
 | `TEI_MAX_CONCURRENT_REQUESTS` | `32` | no | no | `--max-concurrent-requests` de TEI. |
 | `EMBEDDINGS_MEM_LIMIT` | `2g` | no | no | Límite de memoria de `embeddings`. |
 | `RERANKER_MEM_LIMIT` | `2g` | no | no | Límite de memoria de `reranker`. |
+| `RERANKER_GPU_TAG` | `120-1.9.4` | no | no | Solo `docker-compose.gpu.yml`: build de TEI según la capacidad de cómputo de la tarjeta (`120-` RTX 50xx, `89-` Ada, `86-` Ampere, sin prefijo A100/H100). |
+| `RERANKER_GPU_MAX_CLIENT_BATCH_SIZE` / `RERANKER_GPU_MAX_BATCH_TOKENS` / `RERANKER_GPU_MAX_CONCURRENT_REQUESTS` | `64` / `4096` / `128` | no | no | Solo `docker-compose.gpu.yml`: límites de TEI del reranker en GPU. |
 | `PHOENIX_MEM_LIMIT` | `1g` | no | no | Límite de memoria de `phoenix`. |
+
+Reranker en GPU: `docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile rerank ...`
+corre `reranker` en una GPU NVIDIA, lo que requiere el NVIDIA Container Toolkit. Los límites de CPU
+de arriba rechazan un caso que reordena muchos candidatos por consulta: sube
+`RERANKER_MAX_CANDIDATES`, por ejemplo a 40, solo con el override de GPU. Si no, TEI rechaza la
+llamada y la recuperación mantiene en silencio el orden vectorial.
 
 Solo las leen los tests: `TEST_DATABASE_URL` (bases de datos desechables `*_test` para la suite de integración).

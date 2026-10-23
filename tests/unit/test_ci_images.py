@@ -42,3 +42,13 @@ def test_ci_tei_image_matches_compose() -> None:
     found = [m.group(0) for s in _integration_steps() if (m := TEI_IMAGE.search(s.get("run", "")))]
     assert found, "no TEI image found in any ci.yml integration step"
     assert found == [compose], f"ci.yml TEI image {found!r} != docker-compose.yml {compose!r}"
+
+
+def test_the_gpu_reranker_override_runs_the_compose_tei_version() -> None:
+    cpu = _load("docker-compose.yml")["services"]["embeddings"]["image"]
+    gpu = _load("docker-compose.gpu.yml")["services"]["reranker"]["image"]
+    default_tag = re.fullmatch(r".*:\$\{RERANKER_GPU_TAG:-(\S+)\}", gpu)
+    assert default_tag, f"unexpected GPU reranker image {gpu!r}"
+    # cpu-1.9.4 -> 1.9.4; the GPU tags are <compute capability>-1.9.4 or plain 1.9.4.
+    version = cpu.rsplit(":", 1)[1].removeprefix("cpu-")
+    assert default_tag.group(1).rsplit("-", 1)[-1] == version

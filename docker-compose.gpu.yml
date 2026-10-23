@@ -1,0 +1,25 @@
+# Optional override: the reranker on an NVIDIA GPU (NVIDIA Container Toolkit on the host).
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile rerank --profile app up -d
+# The CPU reranker of docker-compose.yml takes small batches; a case that reranks many candidates
+# per query (RERANKER_MAX_CANDIDATES, e.g. 40) needs the GPU limits below. Otherwise TEI rejects
+# the call and FallbackReranker silently keeps the vector order.
+# RERANKER_GPU_TAG picks the TEI build for the card's compute capability (same TEI version as the
+# CPU image): 120-1.9.4 Blackwell consumer (RTX 50xx), 89-1.9.4 Ada (RTX 40xx, L4),
+# 86-1.9.4 Ampere (RTX 30xx, A10), 1.9.4 A100/H100.
+services:
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:${RERANKER_GPU_TAG:-120-1.9.4}
+    command:
+      - --model-id=${RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}
+      - --max-client-batch-size=${RERANKER_GPU_MAX_CLIENT_BATCH_SIZE:-64}
+      # 4096 keeps a consumer card under full load (peaks around 80% on an RTX 5060 Ti).
+      - --max-batch-tokens=${RERANKER_GPU_MAX_BATCH_TOKENS:-4096}
+      - --max-concurrent-requests=${RERANKER_GPU_MAX_CONCURRENT_REQUESTS:-128}
+      - --auto-truncate
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
