@@ -170,7 +170,7 @@ def test_the_real_run_reports_the_first_deletion_when_it_aborts(
         calls += 1
         if calls == 2:
             raise RuntimeError("concurrent ingest")
-        return await real(tenant_id, document)
+        return cast(bool, await real(tenant_id, document))
 
     monkeypatch.setattr(batch._ingest, "remove_rerouted", flaky)
     code = main(_argv(index))

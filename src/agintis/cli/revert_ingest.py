@@ -79,7 +79,7 @@ async def run(
     )
     async with Container.build(settings, for_ingest=True) as container:
         return await container.ingest_batch.revert(
-            TenantId(args.tenant), uris, apply=args.apply
+            TenantId(args.tenant), uris, apply=args.apply, on_removed=on_removed
         )
 
 
