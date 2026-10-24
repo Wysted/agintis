@@ -34,9 +34,12 @@ docker compose up -d db embeddings          # first start builds the DB image, d
 # 1. Fetch the corpus of a case (fastapi_es: FastAPI docs in Spanish, pinned commit)
 uv run --no-project --python 3.12 python -I case/fastapi_es/fetch/fetch.py
 
-# 2. Ingest it (the case dir is mounted at /app/case; CASE defaults to fastapi_es)
+# 2. Ingest it (the case dir is mounted at /app/case; CASE defaults to fastapi_es), then create
+#    the metadata indexes of the fields its profiles flag `indexed` (none in fastapi_es: no-op)
 docker compose --profile app run --rm app python -m agintis.cli.ingest \
     --profiles /app/case/profiles --index /app/case/index/documents.jsonl --samples /app/case/samples
+docker compose --profile app run --rm app python -m agintis.cli.indexes \
+    --profiles /app/case/profiles --apply
 
 # 3. Start the app. A one-shot `migrate` service first runs `alembic upgrade head` and
 #    `python -m agintis.cli.checkpointer_setup`; the app never migrates at boot.
@@ -141,7 +144,9 @@ plus the other extras you use (`--all-extras` includes it); Docker:
 2. Corpus: `index/documents.jsonl` (one row per document, titles from `document_metadata.title`
    or the parser's H1) and the files under `samples/` with `samples/_manifest.json`. Write a
    `fetch/` script that produces both. After a re-fetch that changed or dropped sources, ingest
-   with `--prune` (full index, no `--limit`). After a bulk ingest or revert (thousands of chunks
+   with `--prune` (full index, no `--limit`); after ingesting, run
+   `cli.indexes --profiles case/<name>/profiles --apply` for the fields flagged `indexed`.
+   After a bulk ingest or revert (thousands of chunks
    inserted and deleted), pgvector HNSW results are no longer identical to before, even after
    `VACUUM` (measured: routed MRR moved +-0.005 with the same routing). Re-measure your baselines
    after bulk changes, or `REINDEX` the HNSW index after a bulk revert if exact reproducibility
