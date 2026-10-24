@@ -147,6 +147,10 @@ más los otros extras que uses (`--all-extras` lo incluye); Docker:
    antes, ni siquiera tras `VACUUM` (medido: el MRR con routing se movió +-0.005 con el mismo
    routing). Vuelve a medir tus baselines después de cambios masivos, o haz `REINDEX` del índice HNSW
    tras una reversión masiva si necesitas reproducibilidad exacta.
+   Para deshacer un lote de ingesta de forma auditable, `uv run python -m agintis.cli.revert_ingest
+   --profiles ... --index <el mismo índice> --tenant <id>` lista (simulación, con conteos) los
+   documentos de ese tenant cuya fuente está en el índice, y `--apply` los elimina (los chunks
+   caen en cascada; cada eliminación queda en el log).
 3. `agents/*.yaml`: la especificación del agente (ver abajo).
 4. `calibration/in_dev.jsonl` y `ood.jsonl`: preguntas de desarrollo dentro y fuera del dominio, con
    trampas de dominio cercano verificadas contra el corpus. Calibra los umbrales de evidencia:

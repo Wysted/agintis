@@ -186,6 +186,13 @@ class IngestDocument:
             if d.source_uri not in keep_uris
         ]
 
+    async def find_by_sources(
+        self, tenant_id: TenantId, source_uris: Collection[str]
+    ) -> list[Document]:
+        """Every version (any status, any profile) of the given sources, for a batch revert."""
+        criteria = Criteria.all_of(Filter.in_("source_uri", sorted(source_uris)))
+        return await self._documents.matching(tenant_id, criteria)
+
     async def remove_rerouted(self, tenant_id: TenantId, document: Document) -> bool:
         """Delete an orphan found by `find_rerouted`/`find_stale` (chunks and document), under
         its source lock; False when it is already gone."""

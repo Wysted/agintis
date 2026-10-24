@@ -429,6 +429,39 @@ class TestPrune:
         )
 
 
+class TestRevert:
+    async def _seeded(self) -> tuple[IngestBatch, InMemoryDocumentRepository]:
+        batch, documents, _ = _rerouting_batch()
+        await batch.execute(
+            TenantId("t"), [_source("a", to="old"), _source("b", to="old"), _source("c", to="new")]
+        )
+        await batch.execute(TenantId("other"), [_source("a", to="old")])
+        return batch, documents
+
+    async def test_a_dry_run_lists_and_deletes_nothing(self) -> None:
+        batch, documents = await self._seeded()
+        before = len(documents.items)
+        found = await batch.revert(TenantId("t"), ["a", "c"], apply=False)
+        assert sorted(d.source_uri for d in found) == ["a", "c"]
+        assert len(documents.items) == before
+
+    async def test_apply_deletes_only_the_listed_sources_of_the_tenant(self) -> None:
+        batch, documents = await self._seeded()
+        removed = await batch.revert(TenantId("t"), ["a", "c", "zzz"], apply=True)
+        assert sorted(d.source_uri for d in removed) == ["a", "c"]
+        left = {(d.tenant_id, d.source_uri) for d in documents.items.values()}
+        assert left == {("t", "b"), ("other", "a")}
+
+    async def test_lookups_are_chunked(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        batch, documents = await self._seeded()
+        monkeypatch.setattr(
+            "agintis.modules.knowledge.application.ingest_batch.REVERT_LOOKUP_SIZE", 1
+        )
+        removed = await batch.revert(TenantId("t"), ["a", "b", "c"], apply=True)
+        assert len(removed) == 3
+        assert {d.tenant_id for d in documents.items.values()} == {"other"}
+
+
 class TestStreaming:
     async def test_outcomes_are_yielded_as_the_sources_are_consumed(self) -> None:
         batch, _ = _batch()

@@ -25,6 +25,9 @@ empty batch, with no document ingested, is no evidence either). Unrouted sources
 source that is now unrouted keeps its old READY version (neither prune nor cleanup touches it).
 A source re-routed to another profile is protected under the old one too (the URI is in the
 batch): `cleanup_rerouted` owns that orphan.
+
+Revert: `revert` removes every version of an explicit list of sources (dry run unless `apply`),
+to undo an ingest batch auditably.
 """
 
 import logging
@@ -40,6 +43,9 @@ from agintis.shared_kernel.errors import DomainError
 from agintis.shared_kernel.ids import TenantId
 
 logger = logging.getLogger(__name__)
+
+# Source URIs per lookup query: keeps the IN list of a large index bounded.
+REVERT_LOOKUP_SIZE = 500
 
 type BatchStatus = IngestStatus | Literal["unrouted", "failed"]
 
@@ -116,6 +122,34 @@ class IngestBatch:
                     logger.info(
                         "Pruned %s (%s) of profile %s", document.id, document.source_uri, profile
                     )
+        return removed
+
+    async def revert(
+        self, tenant_id: TenantId, source_uris: Collection[str], *, apply: bool
+    ) -> list[Document]:
+        """Documents of `source_uris` (every profile and status) of the tenant; deleted if `apply`.
+
+        Without `apply` nothing changes (dry run). Chunks go with their document. Each deletion
+        takes the source lock and is logged; a document already gone is left out of the result.
+        """
+        found: list[Document] = []
+        uris = sorted(set(source_uris))
+        for start in range(0, len(uris), REVERT_LOOKUP_SIZE):
+            found += await self._ingest.find_by_sources(
+                tenant_id, uris[start : start + REVERT_LOOKUP_SIZE]
+            )
+        if not apply:
+            return found
+        removed: list[Document] = []
+        for document in found:
+            if await self._ingest.remove_rerouted(tenant_id, document):
+                removed.append(document)
+                logger.info(
+                    "Reverted %s (%s) of profile %s",
+                    document.id,
+                    document.source_uri,
+                    document.profile,
+                )
         return removed
 
     async def _one(

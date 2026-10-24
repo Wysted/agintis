@@ -146,6 +146,10 @@ plus the other extras you use (`--all-extras` includes it); Docker:
    `VACUUM` (measured: routed MRR moved +-0.005 with the same routing). Re-measure your baselines
    after bulk changes, or `REINDEX` the HNSW index after a bulk revert if exact reproducibility
    matters.
+   To undo an ingest batch auditably, `uv run python -m agintis.cli.revert_ingest --profiles
+   ... --index <same index file> --tenant <id>` lists (dry run, with counts) the documents of
+   that tenant whose source is in the index, and `--apply` deletes them (chunks cascade; each
+   deletion is logged).
 3. `agents/*.yaml`: the agent spec (see below).
 4. `calibration/in_dev.jsonl` and `ood.jsonl`: in-domain and out-of-domain dev questions, with
    near-domain traps checked against the corpus. Calibrate the evidence thresholds:
