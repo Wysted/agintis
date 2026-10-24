@@ -427,6 +427,44 @@ async def test_the_retrieval_query_and_attempts_are_recorded_and_not_hashed() ->
             record_from_json({**rewritten.to_json(), **bad})
 
 
+async def test_the_analyzer_signals_are_recorded_and_not_hashed() -> None:
+    async def run(**extra: Any) -> AnswerRecord:
+        return await answer_question(
+            FakeGraph(lambda _q: _state(**extra)),
+            Question("q", "Q?"),
+            tenant=TENANT,
+            agent="a",
+            limits=SourceLimits(),
+            models={},
+            meta={},
+            citations="inline",
+        )
+
+    plain = await run()
+    signalled = await run(is_clear=False, confidence=0.25)
+
+    assert (plain.is_clear, plain.confidence) == (None, None)
+    assert (signalled.is_clear, signalled.confidence) == (False, 0.25)
+    assert signalled.answer_sha256 == plain.answer_sha256
+    row = signalled.to_json()
+    assert (row["is_clear"], row["confidence"]) == (False, 0.25)
+    assert record_from_json(row) == signalled
+    assert record_from_json({**row, "confidence": 1}).confidence == 1.0  # an int is a number
+    del row["is_clear"], row["confidence"]  # an old dump
+    assert (record_from_json(row).is_clear, record_from_json(row).confidence) == (None, None)
+    bad_values = (
+        {"is_clear": 1},
+        {"is_clear": "true"},
+        {"confidence": True},
+        {"confidence": "0.5"},
+        {"confidence": 1.5},
+        {"confidence": -0.1},
+    )
+    for bad in bad_values:
+        with pytest.raises(RecordFormatError):
+            record_from_json({**signalled.to_json(), **bad})
+
+
 async def test_a_refused_turn_has_scope_out_and_no_sources() -> None:
     graph = FakeGraph(
         lambda _q: _state(answer="Fixed message.", scope_level="out", scope_score=0.2)

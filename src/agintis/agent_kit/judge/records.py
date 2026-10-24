@@ -10,7 +10,7 @@ the `[n]` markers of the answer), the scope verdict of the clarification policy 
 {"schema": 1, "id": "in-cmp-01", "question": "...", "expected_scope": "in",
  "answer": "... [1] ...", "answer_sha256": "...", "scope": {"level": "in", "score": 0.7312},
  "refusal_reason": null, "standalone_query": "...", "query": "...", "attempts": 0,
- "citations": "inline",
+ "is_clear": true, "confidence": 0.8, "citations": "inline",
  "sources": [{"n": 1, "title": "...", "locator": "p. 3", "uri": "...", "text": "..."}],
  "agent": "spensiones-rag", "models": {"analyzer": "default (openai:gpt-5.4-mini)", ...},
  "meta": {"git": "abc1234", "tenant": "default"}, "error": null}
@@ -27,6 +27,9 @@ as; it is not part of `answer_sha256`. `query` (optional, absent in old dumps) i
 LAST retrieval ran on (the standalone query, or the last rewrite of it; a refused turn, see
 `refusal_reason`, keeps the standalone query but retrieved nothing) and `attempts` (optional,
 absent in old dumps) is how many rewrites ran this turn; neither is part of `answer_sha256`.
+`is_clear` and `confidence` (optional, absent in old dumps) are the analyzer's clarity verdict and
+confidence, logged for calibrating a future clarification policy; not acted on, not part of
+`answer_sha256`.
 `citations` (`inline` | `none`; absent in old dumps = `inline`) is the agent's citation style: with
 `none` the answer carries no `[n]` by design.
 `answer_sha256` binds labels to what was judged: the sha256 of the canonical JSON of the question,
@@ -108,6 +111,8 @@ class AnswerRecord:
     standalone_query: str | None = None  # the analyze node's condensed query (None: not run)
     query: str | None = None  # the text the last retrieval ran on (None: not run)
     attempts: int | None = None  # rewrites that ran this turn (None: not reported)
+    is_clear: bool | None = None  # the analyzer's clarity verdict (None: not reported)
+    confidence: float | None = None  # the analyzer's confidence in [0, 1] (None: not reported)
     # the agent's `citations` (`none` = no [n] by design); no default: only `record_from_json`
     # reads a missing one (old dumps) as `inline`
     citations: CitationStyle = field(kw_only=True)
@@ -157,6 +162,8 @@ class AnswerRecord:
             "standalone_query": self.standalone_query,
             "query": self.query,
             "attempts": self.attempts,
+            "is_clear": self.is_clear,
+            "confidence": self.confidence,
             "citations": self.citations,
         }
 
@@ -177,6 +184,22 @@ def _count(row: Mapping[str, Any], key: str) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise RecordFormatError(f"{key!r} must be an integer or null")
     return value
+
+
+def _flag(row: Mapping[str, Any], key: str) -> bool | None:
+    value = row.get(key)
+    if value is not None and not isinstance(value, bool):
+        raise RecordFormatError(f"{key!r} must be a boolean or null")
+    return value
+
+
+def _unit(row: Mapping[str, Any], key: str) -> float | None:
+    value = row.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 1:
+        raise RecordFormatError(f"{key!r} must be a number in [0, 1] or null")
+    return float(value)
 
 
 def _source(position: int, raw: object) -> CitedSource:
@@ -244,6 +267,8 @@ def record_from_json(row: object) -> AnswerRecord:
         standalone_query=_text(row, "standalone_query", nullable=True),
         query=_text(row, "query", nullable=True),
         attempts=_count(row, "attempts"),
+        is_clear=_flag(row, "is_clear"),
+        confidence=_unit(row, "confidence"),
         citations=citations,
     )
     if row.get("answer_sha256") != record.answer_sha256:

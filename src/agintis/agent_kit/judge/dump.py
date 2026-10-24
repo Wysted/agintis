@@ -79,5 +79,7 @@ def record_from_state(
         standalone_query=state.get("standalone_query"),
         query=state.get("query"),
         attempts=state.get("attempts"),
+        is_clear=state.get("is_clear"),
+        confidence=state.get("confidence"),
         citations=citations,
     )
