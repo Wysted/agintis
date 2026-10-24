@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_KS = (1, 3, 5, 10)
+# Question sets without a gold profile (e.g. a colloquial bank) group under this row.
+NO_PROFILE = "none"
 
 
 @dataclass(frozen=True)
@@ -42,7 +44,7 @@ def load_questions(path: Path) -> list[EvalQuestion]:
                     id=str(row["id"]),
                     question=str(row["question"]),
                     type=str(row.get("type", "")),
-                    profile=str(row["profile"]),
+                    profile=str(row.get("profile", NO_PROFILE)),
                     expected_snippet=str(row["expected_snippet"]),
                     locator=locator,
                 )
