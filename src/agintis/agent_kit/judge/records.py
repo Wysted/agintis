@@ -9,7 +9,8 @@ the `[n]` markers of the answer), the scope verdict of the clarification policy 
 ```json
 {"schema": 1, "id": "in-cmp-01", "question": "...", "expected_scope": "in",
  "answer": "... [1] ...", "answer_sha256": "...", "scope": {"level": "in", "score": 0.7312},
- "refusal_reason": null, "standalone_query": "...", "citations": "inline",
+ "refusal_reason": null, "standalone_query": "...", "query": "...", "attempts": 0,
+ "citations": "inline",
  "sources": [{"n": 1, "title": "...", "locator": "p. 3", "uri": "...", "text": "..."}],
  "agent": "spensiones-rag", "models": {"analyzer": "default (openai:gpt-5.4-mini)", ...},
  "meta": {"git": "abc1234", "tenant": "default"}, "error": null}
@@ -22,8 +23,12 @@ one. `error` is the failure class of a run that did not produce an answer (`answ
 dumps) is why the agent's refuse path ran: a `social` turn announces no scope, so this is the only
 trace of it. `standalone_query` (optional, absent in old dumps) is the query the analyze node
 condensed from the history and the question: the way to see what a follow-up row was understood
-as; it is not part of `answer_sha256`. `citations` (`inline` | `none`; absent in old dumps =
-`inline`) is the agent's citation style: with `none` the answer carries no `[n]` by design.
+as; it is not part of `answer_sha256`. `query` (optional, absent in old dumps) is the text the
+LAST retrieval ran on (the standalone query, or the last rewrite of it; a refused turn, see
+`refusal_reason`, keeps the standalone query but retrieved nothing) and `attempts` (optional,
+absent in old dumps) is how many rewrites ran this turn; neither is part of `answer_sha256`.
+`citations` (`inline` | `none`; absent in old dumps = `inline`) is the agent's citation style: with
+`none` the answer carries no `[n]` by design.
 `answer_sha256` binds labels to what was judged: the sha256 of the canonical JSON of the question,
 the expected scope, the answer and the raw source fields (not of any rendered text); a labeler
 copies it into its rows and `cli.agreement` drops rows whose hash no longer matches. It is
@@ -101,6 +106,8 @@ class AnswerRecord:
     error: str | None = None
     refusal_reason: str | None = None  # why the refuse path ran (None = a normal answer)
     standalone_query: str | None = None  # the analyze node's condensed query (None: not run)
+    query: str | None = None  # the text the last retrieval ran on (None: not run)
+    attempts: int | None = None  # rewrites that ran this turn (None: not reported)
     # the agent's `citations` (`none` = no [n] by design); no default: only `record_from_json`
     # reads a missing one (old dumps) as `inline`
     citations: CitationStyle = field(kw_only=True)
@@ -148,6 +155,8 @@ class AnswerRecord:
             "error": self.error,
             "refusal_reason": self.refusal_reason,
             "standalone_query": self.standalone_query,
+            "query": self.query,
+            "attempts": self.attempts,
             "citations": self.citations,
         }
 
@@ -158,6 +167,15 @@ def _text(row: Mapping[str, Any], key: str, *, nullable: bool = False) -> Any:
         return None
     if not isinstance(value, str):
         raise RecordFormatError(f"{key!r} must be a string")
+    return value
+
+
+def _count(row: Mapping[str, Any], key: str) -> int | None:
+    value = row.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RecordFormatError(f"{key!r} must be an integer or null")
     return value
 
 
@@ -224,6 +242,8 @@ def record_from_json(row: object) -> AnswerRecord:
         error=_text(row, "error", nullable=True),
         refusal_reason=_text(row, "refusal_reason", nullable=True),
         standalone_query=_text(row, "standalone_query", nullable=True),
+        query=_text(row, "query", nullable=True),
+        attempts=_count(row, "attempts"),
         citations=citations,
     )
     if row.get("answer_sha256") != record.answer_sha256:

@@ -77,5 +77,7 @@ def record_from_state(
         meta=dict(meta or {}),
         refusal_reason=state.get("refusal_reason"),
         standalone_query=state.get("standalone_query"),
+        query=state.get("query"),
+        attempts=state.get("attempts"),
         citations=citations,
     )

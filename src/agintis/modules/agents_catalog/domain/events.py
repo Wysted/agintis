@@ -35,6 +35,7 @@ class TokenUsage:
     input_tokens: int
     output_tokens: int
     total_tokens: int
+    cached_input_tokens: int = 0  # the part of input_tokens served from the provider's prompt cache
 
 
 @dataclass(frozen=True, slots=True)

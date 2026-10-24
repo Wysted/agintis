@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 
 from agintis.agent_kit.judge import AnswerRecord, ScopeVerdict, record_from_json
+from agintis.agent_kit.judge.records import RecordFormatError
 from agintis.agent_kit.judge.render import faithfulness_messages
 from agintis.agent_kit.nodes import SourceLimits
 from agintis.agent_kit.runtime import AgentContext
@@ -395,6 +396,35 @@ async def test_old_dumps_without_a_standalone_query_still_load() -> None:
     row = record.to_json()
     del row["standalone_query"]
     assert record_from_json(row).standalone_query is None
+
+
+async def test_the_retrieval_query_and_attempts_are_recorded_and_not_hashed() -> None:
+    async def run(**extra: Any) -> AnswerRecord:
+        return await answer_question(
+            FakeGraph(lambda _q: _state(**extra)),
+            Question("q", "Q?"),
+            tenant=TENANT,
+            agent="a",
+            limits=SourceLimits(),
+            models={},
+            meta={},
+            citations="inline",
+        )
+
+    plain = await run()
+    rewritten = await run(query="rewritten", attempts=1)
+
+    assert (plain.query, plain.attempts) == (None, None)
+    assert (rewritten.query, rewritten.attempts) == ("rewritten", 1)
+    assert rewritten.answer_sha256 == plain.answer_sha256
+    row = rewritten.to_json()
+    assert (row["query"], row["attempts"]) == ("rewritten", 1)
+    assert record_from_json(row) == rewritten
+    del row["query"], row["attempts"]  # an old dump
+    assert (record_from_json(row).query, record_from_json(row).attempts) == (None, None)
+    for bad in ({"attempts": True}, {"attempts": "1"}, {"query": 3}):
+        with pytest.raises(RecordFormatError):
+            record_from_json({**rewritten.to_json(), **bad})
 
 
 async def test_a_refused_turn_has_scope_out_and_no_sources() -> None:

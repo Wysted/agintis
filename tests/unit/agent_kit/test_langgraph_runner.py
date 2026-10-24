@@ -92,6 +92,21 @@ async def test_untagged_llm_gives_no_tokens_but_usage_is_aggregated() -> None:
     assert events[-1] == RunCompleted("length", TokenUsage(14, 3, 17))
 
 
+async def test_cached_input_tokens_are_summed_over_calls_and_default_to_zero() -> None:
+    internal = StreamingModel(pieces=["x"], input_tokens=10, output_tokens=1, cached_tokens=6)
+    answer = StreamingModel(pieces=["ok"], input_tokens=4, output_tokens=2, cached_tokens=3)
+
+    events = await _events(_runner(llm_graph(answer, internal)))
+    assert events[-1] == RunCompleted("stop", TokenUsage(14, 3, 17, cached_input_tokens=9))
+
+    plain = await _events(_runner(llm_graph(StreamingModel(pieces=["ok"]))))
+    assert plain[-1] == RunCompleted("stop", TokenUsage(4, 2, 6, cached_input_tokens=0))
+
+    # one call reports details, the other does not: missing counts as 0
+    mixed = await _events(_runner(llm_graph(answer, StreamingModel(pieces=["x"]))))
+    assert mixed[-1].usage.cached_input_tokens == 3
+
+
 async def test_finish_reason_comes_from_tagged_call_not_internal_one() -> None:
     internal = StreamingModel(pieces=["x"], finish_reason="tool_calls")
     answer = StreamingModel(pieces=["ok"], finish_reason="stop")
