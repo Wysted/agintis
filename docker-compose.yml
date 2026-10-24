@@ -97,7 +97,7 @@ services:
   # the named volume keeps it to one light container; for production point it at Postgres >= 14
   # with PHOENIX_SQL_DATABASE_URL (postgresql://user:pass@host:5432/db) instead.
   phoenix:
-    image: arizephoenix/phoenix:version-20.23.0
+    image: arizephoenix/phoenix:version-20.24.0
     profiles: ["observability"]
     restart: unless-stopped
     environment:
