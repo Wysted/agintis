@@ -149,8 +149,13 @@ más los otros extras que uses (`--all-extras` lo incluye); Docker:
    tras una reversión masiva si necesitas reproducibilidad exacta.
    Para deshacer un lote de ingesta de forma auditable, `uv run python -m agintis.cli.revert_ingest
    --profiles ... --index <el mismo índice> --tenant <id>` lista (simulación, con conteos) los
-   documentos de ese tenant cuya fuente está en el índice, y `--apply` los elimina (los chunks
-   caen en cascada; cada eliminación queda en el log).
+   documentos de ese tenant cuya fuente está en el índice (conexión de solo lectura), y `--apply`
+   los elimina (los chunks caen en cascada; cada eliminación queda en el log con su tenant). Las
+   URIs de las fuentes se resuelven como lo hizo la ingesta: el `url` del manifest de cada fila bajo
+   `--samples` (por defecto `<dir del índice>/../samples`), que puede diferir del `url` del índice;
+   las filas sin archivo local se omiten. `--apply` vuelve a resolver los documentos al ejecutarse,
+   así que una ingesta concurrente entre la simulación y el apply puede cambiar el conjunto. Si
+   nada coincide se imprime una advertencia (revisa el tenant).
 3. `agents/*.yaml`: la especificación del agente (ver abajo).
 4. `calibration/in_dev.jsonl` y `ood.jsonl`: preguntas de desarrollo dentro y fuera del dominio, con
    trampas de dominio cercano verificadas contra el corpus. Calibra los umbrales de evidencia:

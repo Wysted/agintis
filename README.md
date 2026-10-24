@@ -148,8 +148,12 @@ plus the other extras you use (`--all-extras` includes it); Docker:
    matters.
    To undo an ingest batch auditably, `uv run python -m agintis.cli.revert_ingest --profiles
    ... --index <same index file> --tenant <id>` lists (dry run, with counts) the documents of
-   that tenant whose source is in the index, and `--apply` deletes them (chunks cascade; each
-   deletion is logged).
+   that tenant whose source is in the index (opened read-only), and `--apply` deletes them
+   (chunks cascade; each deletion is logged with its tenant). Source URIs are resolved as ingest
+   did: the manifest `url` of each row under `--samples` (default `<index dir>/../samples`),
+   which may differ from the index `url`; rows without a local file are skipped. `--apply`
+   re-resolves the documents when it runs, so a concurrent ingest between the dry run and the
+   apply can change the set. Nothing matched prints a warning (check the tenant).
 3. `agents/*.yaml`: the agent spec (see below).
 4. `calibration/in_dev.jsonl` and `ood.jsonl`: in-domain and out-of-domain dev questions, with
    near-domain traps checked against the corpus. Calibrate the evidence thresholds:

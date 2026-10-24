@@ -31,7 +31,7 @@ to undo an ingest batch auditably.
 """
 
 import logging
-from collections.abc import AsyncIterator, Collection, Iterable
+from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -44,8 +44,9 @@ from agintis.shared_kernel.ids import TenantId
 
 logger = logging.getLogger(__name__)
 
-# Source URIs per lookup query: keeps the IN list of a large index bounded.
-REVERT_LOOKUP_SIZE = 500
+# Source URIs per lookup query. Must stay <= platform.db.criteria.MAX_IN_VALUES (256), which the
+# application layer cannot import (SQLAlchemy); a unit test pins the relation.
+REVERT_LOOKUP_SIZE = 200
 
 type BatchStatus = IngestStatus | Literal["unrouted", "failed"]
 
@@ -125,12 +126,18 @@ class IngestBatch:
         return removed
 
     async def revert(
-        self, tenant_id: TenantId, source_uris: Collection[str], *, apply: bool
+        self,
+        tenant_id: TenantId,
+        source_uris: Collection[str],
+        *,
+        apply: bool,
+        on_removed: Callable[[Document], None] | None = None,
     ) -> list[Document]:
         """Documents of `source_uris` (every profile and status) of the tenant; deleted if `apply`.
 
         Without `apply` nothing changes (dry run). Chunks go with their document. Each deletion
-        takes the source lock and is logged; a document already gone is left out of the result.
+        takes the source lock and is logged; `on_removed` is called right after it (a caller keeps
+        what was deleted if a later one raises). A document already gone is left out of the result.
         """
         found: list[Document] = []
         uris = sorted(set(source_uris))
@@ -145,11 +152,14 @@ class IngestBatch:
             if await self._ingest.remove_rerouted(tenant_id, document):
                 removed.append(document)
                 logger.info(
-                    "Reverted %s (%s) of profile %s",
+                    "Reverted %s (%s) of profile %s, tenant %s",
                     document.id,
                     document.source_uri,
                     document.profile,
+                    tenant_id,
                 )
+                if on_removed is not None:
+                    on_removed(document)
         return removed
 
     async def _one(
