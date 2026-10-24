@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Importing the tables registers them on the shared MetaData (add every module's tables here).
 import agintis.modules.conversations.infrastructure.postgres.tables
-import agintis.modules.knowledge.infrastructure.postgres.tables  # noqa: F401
+import agintis.modules.knowledge.infrastructure.postgres.tables
 import agintis.platform.usage.tables  # noqa: F401
 from agintis.bootstrap.settings import EmbeddingsSettings, get_settings
 from agintis.modules.conversations.infrastructure.postgres.tables import THREADS_ORDER_INDEX
