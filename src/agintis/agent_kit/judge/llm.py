@@ -20,7 +20,7 @@ from typing import Any, Literal
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.outputs import LLMResult
 from langchain_core.runnables import Runnable, RunnableConfig
 from pydantic import BaseModel, ConfigDict, Field
@@ -46,6 +46,7 @@ from agintis.agent_kit.judge.render import (
     relevance_messages,
 )
 from agintis.agent_kit.judge.results import JudgeName, JudgeResult, Usage
+from agintis.agent_kit.judge.usage import response_usage
 from agintis.agent_kit.nodes.structured import bind_structured, invoke_structured
 
 JUDGE_TAG = "agintis:judge"
@@ -159,14 +160,10 @@ class UsageCounter(BaseCallbackHandler):
         self.calls += 1  # a failed call still hit the provider (and may have been billed)
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
-        for generations in response.generations:
-            for generation in generations:
-                message = getattr(generation, "message", None)
-                usage = message.usage_metadata if isinstance(message, AIMessage) else None
-                if usage:
-                    self.input_tokens += usage.get("input_tokens", 0)
-                    self.output_tokens += usage.get("output_tokens", 0)
-                    self.total_tokens += usage.get("total_tokens", 0)
+        call = response_usage(response)
+        self.input_tokens += call.input_tokens
+        self.output_tokens += call.output_tokens
+        self.total_tokens += call.total_tokens
         self.calls += 1
 
     @property

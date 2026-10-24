@@ -52,17 +52,21 @@ class StreamingModel(BaseChatModel):
     output_tokens: int = 2
     finish_reason: str = "stop"
     separate_usage_chunk: bool = False  # ChatOpenAI style: finish chunk, then usage-only chunk
+    cached_tokens: int | None = None  # prompt-cache hits; None: the provider reports no details
 
     @property
     def _llm_type(self) -> str:
         return "streaming-model"
 
     def _usage(self) -> UsageMetadata:
-        return UsageMetadata(
+        usage = UsageMetadata(
             input_tokens=self.input_tokens,
             output_tokens=self.output_tokens,
             total_tokens=self.input_tokens + self.output_tokens,
         )
+        if self.cached_tokens is not None:
+            usage["input_token_details"] = {"cache_read": self.cached_tokens}
+        return usage
 
     def _generate(
         self,

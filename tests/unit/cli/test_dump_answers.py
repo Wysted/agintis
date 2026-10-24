@@ -8,7 +8,16 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 
-from agintis.agent_kit.judge import AnswerRecord, ScopeVerdict, record_from_json
+from agintis.agent_kit.judge import (
+    AnswerRecord,
+    ModelUsage,
+    ModelUsageCounter,
+    ScopeVerdict,
+    format_usage,
+    record_from_json,
+    total_usage,
+)
+from agintis.agent_kit.judge.records import RecordFormatError
 from agintis.agent_kit.judge.render import faithfulness_messages
 from agintis.agent_kit.nodes import SourceLimits
 from agintis.agent_kit.runtime import AgentContext
@@ -103,6 +112,20 @@ def test_questions_accept_label_or_expected_scope_and_a_default(tmp_path: Path) 
         ([{"id": "a", "question": "q"}, {"id": "a", "question": "r"}], "already used"),
         ([], "no questions"),
         (["text"], "JSON object"),
+        ([{"id": "a", "question": "q", "history": "hi"}], "'history' must be a list"),
+        ([{"id": "a", "question": "q", "history": ["hi"]}], "history\\[0\\] must be an object"),
+        (
+            [{"id": "a", "question": "q", "history": [{"role": "system", "content": "x"}]}],
+            "role must be one of",
+        ),
+        (
+            [{"id": "a", "question": "q", "history": [{"role": "user", "content": " "}]}],
+            "content must be a non-empty string",
+        ),
+        (
+            [{"id": "a", "question": "q", "history": [{"role": "user", "content": 3}]}],
+            "content must be a non-empty string",
+        ),
     ],
 )
 def test_bad_questions_files_are_usage_errors(
@@ -110,6 +133,18 @@ def test_bad_questions_files_are_usage_errors(
 ) -> None:
     with pytest.raises(UsageError, match=message):
         load_questions(_write(tmp_path / "q.jsonl", *rows))
+
+
+def test_history_is_optional_and_loaded_in_order(tmp_path: Path) -> None:
+    turns = [{"role": "user", "content": "Q0"}, {"role": "assistant", "content": "A0"}]
+    path = _write(
+        tmp_path / "q.jsonl",
+        {"id": "a", "question": "Q1", "history": turns},
+        {"id": "b", "question": "Q2"},
+    )
+    first, second = load_questions(path)
+    assert first.history == (("user", "Q0"), ("assistant", "A0"))
+    assert second.history == ()
 
 
 def test_a_missing_questions_file_is_a_usage_error(tmp_path: Path) -> None:
@@ -292,15 +327,17 @@ class FakeGraph:
         self._delay = delay
         self.contexts: list[AgentContext] = []
         self.configs: list[RunnableConfig | None] = []
+        self.inputs: list[Any] = []
 
     async def ainvoke(
         self, input: Any, config: RunnableConfig | None = None, *, context: Any = None
     ) -> Any:
         self.contexts.append(context)
         self.configs.append(config)
+        self.inputs.append(input)
         if self._delay:
             await asyncio.sleep(self._delay)
-        return self._responder(input["messages"][0].content)
+        return self._responder(input["messages"][-1].content)
 
 
 def _state(**extra: Any) -> dict[str, Any]:
@@ -325,6 +362,115 @@ async def test_the_scope_event_and_the_sources_the_synthesis_saw_are_recorded() 
     assert (record.scope.level, record.scope.score) == ("low", 0.5234)
     assert record.sources[0].text == "x" * 10  # cut like the synthesis cut it
     assert record.sources[0].title is None
+
+
+async def test_history_precedes_the_question_and_the_standalone_query_is_recorded() -> None:
+    graph = FakeGraph(lambda _q: _state(standalone_query="condensed"))
+    question = Question("q", "y el paso a paso?", history=(("user", "Q0"), ("assistant", "A0")))
+    record = await answer_question(
+        graph,
+        question,
+        tenant=TENANT,
+        agent="a",
+        limits=SourceLimits(),
+        models={},
+        meta={},
+        citations="inline",
+    )
+
+    messages = graph.inputs[0]["messages"]
+    assert [(type(m).__name__, m.content) for m in messages] == [
+        ("HumanMessage", "Q0"),
+        ("AIMessage", "A0"),
+        ("HumanMessage", "y el paso a paso?"),
+    ]
+    assert record.question == "y el paso a paso?"
+    assert record.standalone_query == "condensed"
+    assert record_from_json(record.to_json()) == record
+
+
+async def test_old_dumps_without_a_standalone_query_still_load() -> None:
+    graph = FakeGraph(lambda _q: _state())
+    record = await answer_question(
+        graph,
+        Question("q", "Q?"),
+        tenant=TENANT,
+        agent="a",
+        limits=SourceLimits(),
+        models={},
+        meta={},
+        citations="inline",
+    )
+    row = record.to_json()
+    del row["standalone_query"]
+    assert record_from_json(row).standalone_query is None
+
+
+async def test_the_retrieval_query_and_attempts_are_recorded_and_not_hashed() -> None:
+    async def run(**extra: Any) -> AnswerRecord:
+        return await answer_question(
+            FakeGraph(lambda _q: _state(**extra)),
+            Question("q", "Q?"),
+            tenant=TENANT,
+            agent="a",
+            limits=SourceLimits(),
+            models={},
+            meta={},
+            citations="inline",
+        )
+
+    plain = await run()
+    rewritten = await run(query="rewritten", attempts=1)
+
+    assert (plain.query, plain.attempts) == (None, None)
+    assert (rewritten.query, rewritten.attempts) == ("rewritten", 1)
+    assert rewritten.answer_sha256 == plain.answer_sha256
+    row = rewritten.to_json()
+    assert (row["query"], row["attempts"]) == ("rewritten", 1)
+    assert record_from_json(row) == rewritten
+    del row["query"], row["attempts"]  # an old dump
+    assert (record_from_json(row).query, record_from_json(row).attempts) == (None, None)
+    for bad in ({"attempts": True}, {"attempts": "1"}, {"query": 3}):
+        with pytest.raises(RecordFormatError):
+            record_from_json({**rewritten.to_json(), **bad})
+
+
+async def test_the_analyzer_signals_are_recorded_and_not_hashed() -> None:
+    async def run(**extra: Any) -> AnswerRecord:
+        return await answer_question(
+            FakeGraph(lambda _q: _state(**extra)),
+            Question("q", "Q?"),
+            tenant=TENANT,
+            agent="a",
+            limits=SourceLimits(),
+            models={},
+            meta={},
+            citations="inline",
+        )
+
+    plain = await run()
+    signalled = await run(is_clear=False, confidence=0.25)
+
+    assert (plain.is_clear, plain.confidence) == (None, None)
+    assert (signalled.is_clear, signalled.confidence) == (False, 0.25)
+    assert signalled.answer_sha256 == plain.answer_sha256
+    row = signalled.to_json()
+    assert (row["is_clear"], row["confidence"]) == (False, 0.25)
+    assert record_from_json(row) == signalled
+    assert record_from_json({**row, "confidence": 1}).confidence == 1.0  # an int is a number
+    del row["is_clear"], row["confidence"]  # an old dump
+    assert (record_from_json(row).is_clear, record_from_json(row).confidence) == (None, None)
+    bad_values = (
+        {"is_clear": 1},
+        {"is_clear": "true"},
+        {"confidence": True},
+        {"confidence": "0.5"},
+        {"confidence": 1.5},
+        {"confidence": -0.1},
+    )
+    for bad in bad_values:
+        with pytest.raises(RecordFormatError):
+            record_from_json({**signalled.to_json(), **bad})
 
 
 async def test_a_refused_turn_has_scope_out_and_no_sources() -> None:
@@ -471,7 +617,7 @@ def test_bad_flags_are_usage_errors(
 def test_an_unexpected_failure_aborts_with_exit_3(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    async def boom(_args: Any, _writer: Any) -> Any:
+    async def boom(_args: Any, _writer: Any, _counters: Any) -> Any:
         raise ConnectionError("db down")
 
     monkeypatch.setattr(dump_answers, "run", boom)
@@ -596,8 +742,15 @@ async def test_records_reach_the_sink_in_file_order_even_with_concurrency() -> N
 def test_main_keeps_the_partial_dump_when_the_run_aborts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    async def partial_then_fail(_args: Any, writer: DumpWriter) -> Any:
+    async def partial_then_fail(
+        _args: Any, writer: DumpWriter, counters: list[ModelUsageCounter]
+    ) -> Any:
         writer.write(_record("paid-for"))
+        counter = ModelUsageCounter()
+        await NamedModel(replies=["x"], model_name="in-flight").ainvoke(
+            "hi", {"callbacks": [counter]}
+        )
+        counters.append(counter)
         raise RepeatedFailureError("RateLimitError repeated over 3 questions")
 
     monkeypatch.setattr(dump_answers, "run", partial_then_fail)
@@ -611,13 +764,18 @@ def test_main_keeps_the_partial_dump_when_the_run_aborts(
     assert code == EXIT_ABORTED
     assert not out.exists()
     assert "paid-for" in (tmp_path / "o.jsonl.partial").read_text()
-    assert "o.jsonl.partial" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "o.jsonl.partial" in err
+    assert "aborted run" in err
+    assert "in-flight: 3 in / 2 out / 5 total (0 cached) over 1 calls" in err
 
 
 def test_main_commits_and_returns_1_when_some_questions_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def run_ok(_args: Any, writer: DumpWriter) -> list[AnswerRecord]:
+    async def run_ok(
+        _args: Any, writer: DumpWriter, counters: list[ModelUsageCounter]
+    ) -> list[AnswerRecord]:
         records = [_record("a"), _record("b", "RateLimitError"), _record("c")]
         for record in records:
             writer.write(record)
@@ -650,3 +808,212 @@ def test_a_looser_existing_partial_is_tightened_to_0600(tmp_path: Path) -> None:
 
     assert stat.S_IMODE(partial.stat().st_mode) == 0o600
     assert "old" not in partial.read_text()
+
+
+# --- token usage per model ----------------------------------------------------------------------
+
+
+class NamedModel(ScriptedChatModel):
+    """A scripted model that reports its name, like a real provider client."""
+
+    model_name: str = "gpt-test"
+    cached: int | None = None
+
+    def _generate(self, *args: Any, **kwargs: Any) -> Any:
+        result = super()._generate(*args, **kwargs)
+        if self.cached is not None:
+            message = result.generations[0].message
+            assert isinstance(message, AIMessage)
+            assert message.usage_metadata is not None
+            message.usage_metadata["input_token_details"] = {"cache_read": self.cached}
+        return result
+
+
+async def _ask(graph: Any, **kwargs: Any) -> AnswerRecord:
+    return await answer_question(
+        graph,
+        Question("q", "Q?"),
+        tenant=TENANT,
+        agent="a",
+        limits=SourceLimits(),
+        models={},
+        meta={},
+        citations="inline",
+        **kwargs,
+    )
+
+
+async def test_every_llm_call_of_a_real_graph_run_is_summed_per_model_with_its_call_count() -> None:
+    _, model = _scripted_graph()
+    named = NamedModel(structured=model.structured, replies=model.replies, cached=1)
+    deps = RagChatDeps(
+        chat_models_for(named),
+        FakeRetrieval((make_hit("The deadline is 24 months.", uri="file:///a.pdf"),)),
+    )
+
+    record = await _ask(build_graph(SPEC, PROFILES, deps))
+
+    # analyzer + filter extractor (structured) + synthesis: 3 calls, 1 cached token each
+    assert record.usage == {
+        "gpt-test": ModelUsage(
+            input_tokens=9, output_tokens=6, total_tokens=15, cached_input_tokens=3, calls=3
+        )
+    }
+    row = record.to_json()
+    assert row["usage"]["gpt-test"]["calls"] == 3
+    assert record_from_json(row) == record
+    assert row["answer_sha256"] == record.answer_sha256  # usage is not hashed
+
+
+class UsageGraph:
+    """Calls the given models with the run config (so the dump's callbacks see them), then
+    returns a state or raises."""
+
+    def __init__(self, *models: Any, fail: bool = False) -> None:
+        self._models = models
+        self._fail = fail
+
+    async def ainvoke(
+        self, input: Any, config: RunnableConfig | None = None, *, context: Any = None
+    ) -> Any:
+        for model in self._models:
+            await model.ainvoke("hi", config)
+        if self._fail:
+            raise RuntimeError("boom")
+        return _state()
+
+
+async def test_usage_is_split_by_model() -> None:
+    a, b = NamedModel(replies=["x", "y"], model_name="a"), NamedModel(replies=["z"], model_name="b")
+    record = await _ask(UsageGraph(a, a, b))
+
+    assert record.usage == {
+        "a": ModelUsage(6, 4, 10, 0, 2),
+        "b": ModelUsage(3, 2, 5, 0, 1),
+    }
+
+
+async def test_a_failed_run_keeps_the_usage_consumed_before_the_error() -> None:
+    record = await _ask(UsageGraph(NamedModel(replies=["x"]), fail=True))
+
+    assert record.error is not None
+    assert record.usage == {"gpt-test": ModelUsage(3, 2, 5, 0, 1)}
+
+
+async def test_a_run_without_llm_calls_has_null_usage() -> None:
+    record = await _ask(FakeGraph(lambda _q: _state()))
+
+    assert record.usage is None
+    assert record.to_json()["usage"] is None
+
+
+async def test_old_dumps_without_usage_load_and_bad_usage_is_rejected() -> None:
+    record = await _ask(UsageGraph(NamedModel(replies=["x"])))
+    row = record.to_json()
+    del row["usage"]
+    assert record_from_json(row).usage is None
+
+    good = {
+        "m": {
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "total_tokens": 2,
+            "cached_input_tokens": 0,
+            "calls": 1,
+        }
+    }
+    assert record_from_json({**row, "usage": good}).usage == {"m": ModelUsage(1, 1, 2, 0, 1)}
+    bad_values: list[Any] = [
+        [],
+        {"m": 3},
+        {"m": {**good["m"], "calls": True}},
+        {"m": {**good["m"], "calls": -1}},
+        {"m": {**good["m"], "input_tokens": 1.5}},
+        {"m": {k: v for k, v in good["m"].items() if k != "calls"}},
+        {3: good["m"]},
+    ]
+    for bad in bad_values:
+        with pytest.raises(RecordFormatError):
+            record_from_json({**row, "usage": bad})
+
+
+def test_total_usage_sums_the_records_per_model() -> None:
+    def rec(ident: str, usage: dict[str, ModelUsage] | None) -> AnswerRecord:
+        return AnswerRecord(
+            id=ident, question="q", answer="a", agent="x", usage=usage, citations="inline"
+        )
+
+    records = [
+        rec("1", {"a": ModelUsage(1, 2, 3, 1, 1), "b": ModelUsage(1, 1, 2, 0, 1)}),
+        rec("2", None),
+        rec("3", {"a": ModelUsage(10, 20, 30, 2, 2)}),
+    ]
+    totals = total_usage(r.usage for r in records)
+
+    assert totals == {"a": ModelUsage(11, 22, 33, 3, 3), "b": ModelUsage(1, 1, 2, 0, 1)}
+    assert "a: 11 in / 22 out" in format_usage(totals)
+    assert total_usage([]) == {}
+
+
+class HangAfterModelGraph:
+    """Each question calls a model named after it; `hang` questions then never finish and the
+    others fail with the same error."""
+
+    def __init__(self, hang: set[str]) -> None:
+        self._hang = hang
+        self._hung = asyncio.Event()  # a hanging question has spent its tokens
+
+    async def ainvoke(
+        self, input: Any, config: RunnableConfig | None = None, *, context: Any = None
+    ) -> Any:
+        name = input["messages"][-1].content
+        await NamedModel(replies=["x"], model_name=name).ainvoke("hi", config)
+        if name in self._hang:
+            self._hung.set()
+            await asyncio.Event().wait()
+        await self._hung.wait()  # the others fail only once the hanging one is in flight
+        raise RuntimeError("down")
+
+
+async def test_concurrent_questions_keep_separate_counters_even_when_the_dump_aborts() -> None:
+    counters: list[ModelUsageCounter] = []
+    questions = [Question(f"i{n}", f"m{n}") for n in range(4)]
+
+    with pytest.raises(RepeatedFailureError):
+        await run_dump(
+            HangAfterModelGraph({"m3"}),
+            questions,
+            tenant=TENANT,
+            agent="a",
+            limits=SourceLimits(),
+            models={},
+            meta={},
+            citations="inline",
+            concurrency=4,
+            counters=counters,
+        )
+
+    # the in-flight (cancelled) question's spend is still reachable
+    totals = total_usage(c.usage for c in counters)
+    assert totals == {f"m{n}": ModelUsage(3, 2, 5, 0, 1) for n in range(4)}
+
+
+class RaisingNamedModel(NamedModel):
+    def _generate(self, *args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("provider down")
+
+
+async def test_a_model_call_that_raises_is_counted_as_a_call_without_tokens() -> None:
+    record = await _ask(UsageGraph(RaisingNamedModel(model_name="bad")))
+
+    assert record.error is not None
+    assert record.usage == {"bad": ModelUsage(0, 0, 0, 0, 1)}
+
+
+def test_unknown_usage_keys_are_ignored_so_future_dumps_stay_readable() -> None:
+    row = AnswerRecord(id="a", question="q", answer="a", agent="x", citations="inline").to_json()
+    counts = {**ModelUsage(1, 1, 2, 0, 1).to_json(), "reasoning_tokens": 7}
+
+    assert record_from_json({**row, "usage": {"m": counts}}).usage == {
+        "m": ModelUsage(1, 1, 2, 0, 1)
+    }

@@ -169,7 +169,13 @@ class _RunAccumulator:
         finish_reason = INTERRUPTED_FINISH_REASON if self.interrupted else self.finish_reason
         return RunCompleted(
             finish_reason=finish_reason or DEFAULT_FINISH_REASON,
-            usage=TokenUsage(usage["input_tokens"], usage["output_tokens"], usage["total_tokens"])
+            usage=TokenUsage(
+                usage["input_tokens"],
+                usage["output_tokens"],
+                usage["total_tokens"],
+                # `add_usage` sums the nested details; a provider without them reports none
+                cached_input_tokens=(usage.get("input_token_details") or {}).get("cache_read") or 0,
+            )
             if usage
             else None,
         )

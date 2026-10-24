@@ -8,15 +8,22 @@ The dump is the input of `python -m agintis.cli.judge`: judging runs offline ove
 reproducible and cheap to repeat (no database, no retrieval, no generator). Each questions row is
 `{"id", "question"}` plus an optional reference scope, `label` (`in` | `out`, the dev sets of
 `case/<name>/calibration`) or `expected_scope`; rows without one get `--default-scope` (none by
-default, which makes the `refusal_correctness` judge not applicable to them).
+default, which makes the `refusal_correctness` judge not applicable to them). A multi-turn row
+also has `history`: `[{"role": "user" | "assistant", "content": "..."}, ...]`, the earlier turns
+in conversation order, sent to the agent before `question` (the follow-up that is answered).
+Roles are not checked for alternation. shortcut: the record keeps `question` but not `history`, so
+the judge and the labelers see a follow-up without its context; carry `history` in the record
+before judging a multi-turn set.
 
 The agent runs through its own compiled graph (same nodes, same models, same limits as the
-runtime; no checkpointer, one fresh turn per question) against the configured database READ-ONLY.
+runtime; no checkpointer, one fresh conversation per question) against the configured database
+READ-ONLY.
 A record holds the final answer, the clarification policy's scope verdict, the sources EXACTLY as
 the synthesis numbered and saw them (n, title, uri, chunk text) and the models behind the run as
-"profile (provider:model)" labels; see `agintis.agent_kit.judge.records` for the schema. A question
-whose run fails is written with its `error` (the failure class) and an empty answer: one failure
-never aborts the dump.
+"profile (provider:model)" labels, plus the LLM token usage of the question per model (every call
+of the run, also of a failed one up to the failure; the totals are printed at the end); see
+`agintis.agent_kit.judge.records` for the schema. A question whose run fails is written with its
+`error` (the failure class) and an empty answer: one failure never aborts the dump.
 
 The dump is written incrementally, in question order, to `OUT.partial` (mode 0600: it holds
 retrieved document text and model output) and renamed to OUT when the run finishes, so an abort
@@ -42,15 +49,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from agintis.agent_kit.judge import (
     EXPECTED_SCOPES,
     AnswerRecord,
     ExpectedScope,
+    ModelUsageCounter,
     failure_reason,
+    format_usage,
     record_from_state,
+    total_usage,
 )
 from agintis.agent_kit.nodes import CitationStyle, SourceLimits
 from agintis.agent_kit.runtime import DEFAULT_RECURSION_LIMIT, AgentContext
@@ -96,6 +106,10 @@ class Question:
     id: str
     question: str
     expected_scope: ExpectedScope | None = None
+    history: tuple[tuple[str, str], ...] = ()  # (role, content) turns before `question`
+
+
+HISTORY_ROLES = ("user", "assistant")
 
 
 class AnswerGraph(Protocol):
@@ -104,6 +118,24 @@ class AnswerGraph(Protocol):
     async def ainvoke(
         self, input: Any, config: RunnableConfig | None = None, *, context: Any = None
     ) -> Any: ...
+
+
+def _history(where: str, raw: object) -> tuple[tuple[str, str], ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise UsageError(f"{where}: 'history' must be a list")
+    turns: list[tuple[str, str]] = []
+    for i, turn in enumerate(raw):
+        if not isinstance(turn, dict):
+            raise UsageError(f"{where}: history[{i}] must be an object")
+        role, content = turn.get("role"), turn.get("content")
+        if role not in HISTORY_ROLES:
+            raise UsageError(f"{where}: history[{i}] role must be one of {HISTORY_ROLES}")
+        if not isinstance(content, str) or not content.strip():
+            raise UsageError(f"{where}: history[{i}] content must be a non-empty string")
+        turns.append((role, content))
+    return tuple(turns)
 
 
 def load_questions(path: Path, default_scope: ExpectedScope | None = None) -> list[Question]:
@@ -124,7 +156,14 @@ def load_questions(path: Path, default_scope: ExpectedScope | None = None) -> li
             raise UsageError(
                 f"{where}: scope label must be one of {EXPECTED_SCOPES}, got {scope!r}"
             )
-        questions.append(Question(ident, text, scope if scope is not None else default_scope))
+        questions.append(
+            Question(
+                ident,
+                text,
+                scope if scope is not None else default_scope,
+                _history(where, row.get("history")),
+            )
+        )
     if not questions:
         raise UsageError(f"{path}: no questions")
     return questions
@@ -140,16 +179,26 @@ async def answer_question(
     models: Mapping[str, str],
     meta: Mapping[str, Any],
     citations: CitationStyle,
+    counter: ModelUsageCounter | None = None,
 ) -> AnswerRecord:
-    """One fresh turn of the agent; a failure becomes a record with `error` (never raises)."""
+    """One fresh conversation (the history, then the question); a failure becomes a record with
+    `error` (never raises). `counter` collects the run's LLM usage (the caller may keep it to read
+    the spend of a run that gets cancelled)."""
+    counter = counter or ModelUsageCounter()  # sees every LLM call of the run, subgraphs too
     config: RunnableConfig = {
+        "callbacks": [counter],
         "recursion_limit": DEFAULT_RECURSION_LIMIT,
         "tags": [DUMP_TAG],
         "metadata": {"agintis_component": "dump_answers", "record_id": question.id, "agent": agent},
     }
+    messages: list[BaseMessage] = [
+        HumanMessage(content) if role == "user" else AIMessage(content)
+        for role, content in question.history
+    ]
+    messages.append(HumanMessage(question.question))
     try:
         state = await graph.ainvoke(
-            {"messages": [HumanMessage(question.question)]},
+            {"messages": messages},
             config,
             context=AgentContext(tenant_id=tenant, run_id=RunId(new_id())),
         )
@@ -164,6 +213,7 @@ async def answer_question(
             models=dict(models),
             meta=dict(meta),
             error=failure_reason(exc),
+            usage=counter.usage,  # what was consumed before the failure
             citations=citations,
         )
     return record_from_state(
@@ -176,6 +226,7 @@ async def answer_question(
         models=models,
         meta=meta,
         citations=citations,
+        usage=counter.usage,
     )
 
 
@@ -212,14 +263,19 @@ async def dump_answers(
     citations: CitationStyle,
     concurrency: int = DEFAULT_CONCURRENCY,
     sink: Callable[[AnswerRecord], None] | None = None,
+    counters: list[ModelUsageCounter] | None = None,
 ) -> list[AnswerRecord]:
     """Every question, at most `concurrency` at a time; records come back (and reach `sink`) in
     file order. `RepeatedFailureError` (the finished records are already in the sink) when the
-    same failure repeats."""
+    same failure repeats. Each question's usage counter is appended to `counters` when it starts,
+    so the spend of questions cancelled by an abort stays readable."""
     semaphore = asyncio.Semaphore(concurrency)
 
     async def one(question: Question) -> AnswerRecord:
         async with semaphore:
+            counter = ModelUsageCounter()
+            if counters is not None:
+                counters.append(counter)
             return await answer_question(
                 graph,
                 question,
@@ -229,6 +285,7 @@ async def dump_answers(
                 models=models,
                 meta=meta,
                 citations=citations,
+                counter=counter,
             )
 
     tasks = [asyncio.create_task(one(q)) for q in questions]
@@ -355,7 +412,9 @@ def model_labels(view: ChatModels, spec: AgentSpec) -> dict[str, str]:
     return {role.value: view.describe(role).label for role in roles_used(spec)}
 
 
-async def run(args: argparse.Namespace, writer: DumpWriter) -> list[AnswerRecord]:
+async def run(
+    args: argparse.Namespace, writer: DumpWriter, counters: list[ModelUsageCounter]
+) -> list[AnswerRecord]:
     specs = load_agent_specs(args.agents)
     spec = pick_spec(specs, args.agent)
     questions = load_questions(args.questions, args.default_scope)
@@ -392,6 +451,7 @@ async def run(args: argparse.Namespace, writer: DumpWriter) -> list[AnswerRecord
             citations=spec.citations,
             concurrency=args.concurrency,
             sink=writer.write,
+            counters=counters,
         )
 
 
@@ -399,8 +459,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     writer = DumpWriter(args.out)
+    counters: list[ModelUsageCounter] = []  # the run's, to report the spend of an abort
     try:
-        records = asyncio.run(run(args, writer))
+        records = asyncio.run(run(args, writer, counters))
         writer.commit()
     except UsageError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -408,6 +469,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (Exception, KeyboardInterrupt) as exc:  # services down, repeated failure, Ctrl-C...
         print(f"aborted: {type(exc).__name__}: {exc}", file=sys.stderr)
         logger.debug("abort details", exc_info=True)
+        if counters:
+            spend = format_usage(total_usage(c.usage for c in counters))
+            print(f"aborted run, {spend} (written rows plus questions in flight)", file=sys.stderr)
         if writer.partial.exists():
             print(f"the records already answered are kept in {writer.partial}", file=sys.stderr)
         return EXIT_ABORTED
@@ -416,6 +480,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     failed = [r.id for r in records if r.error is not None]
     refused = sum(1 for r in records if r.scope is not None and r.scope.level == "out")
     print(f"{len(records)} answers written to {args.out} ({refused} refused by the scope check)")
+    print(format_usage(total_usage(r.usage for r in records)))
     if failed:
         print(f"{len(failed)} questions failed: {', '.join(failed[:10])}", file=sys.stderr)
         return EXIT_PARTIAL

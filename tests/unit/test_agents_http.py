@@ -125,7 +125,7 @@ async def test_wire_shape_of_every_event() -> None:
             Sources((SourceRef("doc", title="T", locator="p1"), SourceRef("other"))),
             Clarification("Which one?", ("a", "b"), "i-1"),
             Clarification("Free text?"),
-            RunCompleted("length", TokenUsage(1, 2, 3)),
+            RunCompleted("length", TokenUsage(1, 2, 3, cached_input_tokens=1)),
         ]
     )
 
@@ -148,7 +148,12 @@ async def test_wire_shape_of_every_event() -> None:
         "clarification8": {"question": "Free text?", "options": [], "interrupt_id": ""},
         "done9": {
             "finish_reason": "length",
-            "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+            "usage": {
+                "input_tokens": 1,
+                "output_tokens": 2,
+                "total_tokens": 3,
+                "cached_input_tokens": 1,
+            },
         },
     }
 

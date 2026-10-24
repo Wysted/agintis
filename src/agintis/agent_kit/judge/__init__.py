@@ -67,12 +67,16 @@ from agintis.agent_kit.judge.records import (
     AnswerRecord,
     CitedSource,
     ExpectedScope,
+    ModelUsage,
     RecordFormatError,
     ScopeVerdict,
+    format_usage,
     record_from_json,
+    total_usage,
 )
 from agintis.agent_kit.judge.refusal import is_refusal, looks_like_refusal
 from agintis.agent_kit.judge.results import JudgeName, JudgeResult, JudgeStatus, Usage
+from agintis.agent_kit.judge.usage import ModelUsageCounter
 
 __all__ = [
     "CONSENSUS_MODES",
@@ -106,6 +110,8 @@ __all__ = [
     "LabelFormatError",
     "LabelRow",
     "MalformedSpec",
+    "ModelUsage",
+    "ModelUsageCounter",
     "PerturbationSpec",
     "PerturbedDump",
     "RecordFormatError",
@@ -134,6 +140,7 @@ __all__ = [
     "final_answer",
     "fleiss_for",
     "fleiss_kappa",
+    "format_usage",
     "hashes_from_report",
     "inter_labeler",
     "is_refusal",
@@ -146,5 +153,6 @@ __all__ = [
     "record_from_state",
     "spec_from_json",
     "split_sentences",
+    "total_usage",
     "verdicts_from_report",
 ]

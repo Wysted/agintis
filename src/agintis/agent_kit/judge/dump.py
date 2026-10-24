@@ -10,6 +10,7 @@ from agintis.agent_kit.judge.records import (
     AnswerRecord,
     CitedSource,
     ExpectedScope,
+    ModelUsage,
     ScopeVerdict,
 )
 from agintis.agent_kit.nodes import CitationStyle, RagState, SourceLimits, select_sources
@@ -44,8 +45,9 @@ def record_from_state(
     models: Mapping[str, str] | None = None,
     meta: Mapping[str, Any] | None = None,
     citations: CitationStyle,
+    usage: Mapping[str, ModelUsage] | None = None,
 ) -> AnswerRecord:
-    """The record of one finished run.
+    """The record of one finished run (`usage`: what its LLM calls consumed, per model).
 
     The sources are the SAME selection `SynthesizeNode` numbered and showed the model
     (`select_sources` with the agent's limits over the merged `sources`, text cut included), so
@@ -76,5 +78,11 @@ def record_from_state(
         models=dict(models or {}),
         meta=dict(meta or {}),
         refusal_reason=state.get("refusal_reason"),
+        standalone_query=state.get("standalone_query"),
+        query=state.get("query"),
+        attempts=state.get("attempts"),
+        is_clear=state.get("is_clear"),
+        confidence=state.get("confidence"),
+        usage=usage,
         citations=citations,
     )
