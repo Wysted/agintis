@@ -123,7 +123,7 @@ def _seeded_container(monkeypatch: pytest.MonkeyPatch) -> Any:
         batch.execute(tenant, [_source("manifest-url", to="old"), _source("second", to="old")])
     )
     monkeypatch.setattr(
-        cli.Container,
+        Container,
         "build",
         lambda *a, **k: _FakeContainer(batch),
     )
