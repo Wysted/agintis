@@ -103,6 +103,20 @@ def test_questions_accept_label_or_expected_scope_and_a_default(tmp_path: Path) 
         ([{"id": "a", "question": "q"}, {"id": "a", "question": "r"}], "already used"),
         ([], "no questions"),
         (["text"], "JSON object"),
+        ([{"id": "a", "question": "q", "history": "hi"}], "'history' must be a list"),
+        ([{"id": "a", "question": "q", "history": ["hi"]}], "history\\[0\\] must be an object"),
+        (
+            [{"id": "a", "question": "q", "history": [{"role": "system", "content": "x"}]}],
+            "role must be one of",
+        ),
+        (
+            [{"id": "a", "question": "q", "history": [{"role": "user", "content": " "}]}],
+            "content must be a non-empty string",
+        ),
+        (
+            [{"id": "a", "question": "q", "history": [{"role": "user", "content": 3}]}],
+            "content must be a non-empty string",
+        ),
     ],
 )
 def test_bad_questions_files_are_usage_errors(
@@ -110,6 +124,18 @@ def test_bad_questions_files_are_usage_errors(
 ) -> None:
     with pytest.raises(UsageError, match=message):
         load_questions(_write(tmp_path / "q.jsonl", *rows))
+
+
+def test_history_is_optional_and_loaded_in_order(tmp_path: Path) -> None:
+    turns = [{"role": "user", "content": "Q0"}, {"role": "assistant", "content": "A0"}]
+    path = _write(
+        tmp_path / "q.jsonl",
+        {"id": "a", "question": "Q1", "history": turns},
+        {"id": "b", "question": "Q2"},
+    )
+    first, second = load_questions(path)
+    assert first.history == (("user", "Q0"), ("assistant", "A0"))
+    assert second.history == ()
 
 
 def test_a_missing_questions_file_is_a_usage_error(tmp_path: Path) -> None:
@@ -292,15 +318,17 @@ class FakeGraph:
         self._delay = delay
         self.contexts: list[AgentContext] = []
         self.configs: list[RunnableConfig | None] = []
+        self.inputs: list[Any] = []
 
     async def ainvoke(
         self, input: Any, config: RunnableConfig | None = None, *, context: Any = None
     ) -> Any:
         self.contexts.append(context)
         self.configs.append(config)
+        self.inputs.append(input)
         if self._delay:
             await asyncio.sleep(self._delay)
-        return self._responder(input["messages"][0].content)
+        return self._responder(input["messages"][-1].content)
 
 
 def _state(**extra: Any) -> dict[str, Any]:
@@ -325,6 +353,48 @@ async def test_the_scope_event_and_the_sources_the_synthesis_saw_are_recorded() 
     assert (record.scope.level, record.scope.score) == ("low", 0.5234)
     assert record.sources[0].text == "x" * 10  # cut like the synthesis cut it
     assert record.sources[0].title is None
+
+
+async def test_history_precedes_the_question_and_the_standalone_query_is_recorded() -> None:
+    graph = FakeGraph(lambda _q: _state(standalone_query="condensed"))
+    question = Question("q", "y el paso a paso?", history=(("user", "Q0"), ("assistant", "A0")))
+    record = await answer_question(
+        graph,
+        question,
+        tenant=TENANT,
+        agent="a",
+        limits=SourceLimits(),
+        models={},
+        meta={},
+        citations="inline",
+    )
+
+    messages = graph.inputs[0]["messages"]
+    assert [(type(m).__name__, m.content) for m in messages] == [
+        ("HumanMessage", "Q0"),
+        ("AIMessage", "A0"),
+        ("HumanMessage", "y el paso a paso?"),
+    ]
+    assert record.question == "y el paso a paso?"
+    assert record.standalone_query == "condensed"
+    assert record_from_json(record.to_json()) == record
+
+
+async def test_old_dumps_without_a_standalone_query_still_load() -> None:
+    graph = FakeGraph(lambda _q: _state())
+    record = await answer_question(
+        graph,
+        Question("q", "Q?"),
+        tenant=TENANT,
+        agent="a",
+        limits=SourceLimits(),
+        models={},
+        meta={},
+        citations="inline",
+    )
+    row = record.to_json()
+    del row["standalone_query"]
+    assert record_from_json(row).standalone_query is None
 
 
 async def test_a_refused_turn_has_scope_out_and_no_sources() -> None:
