@@ -7,7 +7,8 @@ reports (`ls_model_name`), not the response's `model_name` (a provider may retur
 variant), so roles bound to different profiles stay apart. Calls the provider reports no usage
 for still count in `calls` (tokens 0); a failed call counts too (it may have been billed).
 shortcut: SDK-level HTTP retries are invisible to callbacks, so a retried request is counted
-once; raise it if retries become a real cost source.
+once, and a stream that fails midway counts its call with 0 tokens: totals are a lower bound;
+raise it if retries or failed streams become a real cost source.
 """
 
 from typing import Any
