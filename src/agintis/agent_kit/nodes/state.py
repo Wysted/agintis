@@ -20,6 +20,8 @@ which bypasses the reducer and resets the channel.
 
 `cited_sources` is the opposite: an `or_` channel that is never reset (one entry per answer of the
 thread, keyed by message id), the only state a transcript needs besides `messages`.
+shortcut: it grows with the thread like `messages` does, and GET /v1/threads/{id}/messages returns
+the whole transcript unpaginated; add a cursor once threads get long enough to matter.
 """
 
 import operator
