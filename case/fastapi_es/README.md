@@ -66,7 +66,7 @@ to tune anything:
 
 By profile: `guia` hit@5 1.0; `tutorial` hit@10 .727.
 
-Live judges (v9 for the table, `deepseek-chat`; generator `gpt-5.4-mini`; 2 dumps per set):
+Live judges (v9 for the table, `deepseek-chat`; generator `gpt-5.4-mini`; 2 dumps per set; the platform default is now gpt-6-luna, so reproduce with `LLM_MODEL=gpt-5.4-mini LLM_REASONING_EFFORT=`):
 
 | set    | metric              | dump 1 | dump 2 |
 |--------|---------------------|--------|--------|

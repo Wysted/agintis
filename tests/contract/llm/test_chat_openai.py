@@ -6,7 +6,7 @@ from agintis.platform.llm import ChatModels, ChatRole, LlmConfig
 def _config(**overrides: object) -> LlmConfig:
     values: dict[str, object] = {
         "provider": "openai",
-        "models": {role: "gpt-5.4-mini" for role in ChatRole},
+        "models": {role: "gpt-6-luna" for role in ChatRole},
         "api_key": "sk-dummy",
     }
     values.update(overrides)

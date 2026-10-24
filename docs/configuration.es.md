@@ -99,7 +99,8 @@ estas variables se ignoran allí (son rutas/URL del host); usa las variantes `AP
 | Variable | Default | Req. | Secret | Significado |
 |---|---|---|---|---|
 | `LLM_PROVIDER` | unset | no | no | `openai`, `anthropic`, `ollama` o cualquier proveedor de `init_chat_model` cuyo extra de uv esté instalado. Servidores compatibles con OpenAI: `openai` más `LLM_BASE_URL`. |
-| `LLM_MODEL` | `gpt-5.4-mini` | no | no | Id del modelo por defecto para todos los roles. |
+| `LLM_MODEL` | `gpt-6-luna` | no | no | Id del modelo por defecto para todos los roles (`gpt-5.4-mini` sigue siendo una alternativa vigente, no está deprecado y también acepta `none`: `LLM_MODEL=gpt-5.4-mini`). |
+| `LLM_REASONING_EFFORT` | `none` | no | no | Esfuerzo de razonamiento del perfil por defecto (solo openai): `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` (cada modelo acepta un subconjunto). Vacío = no se envía (aplica el valor por defecto de la API). El valor por defecto se descarta con otros proveedores; un valor explícito con ellos falla al arrancar. Déjalo vacío (o con un valor que el modelo acepte) para un modelo openai que no acepte `none` (modelos sin razonamiento como gpt-4o / gpt-4.1, serie o, gpt-5) o un servidor alcanzado vía `LLM_BASE_URL` / `OPENAI_BASE_URL` que lo rechace. Con `none`, langchain-openai además envía `LLM_TEMPERATURE` a los modelos gpt-5 en vez de descartarlo. Ojo: con cualquier esfuerzo distinto de `none`, gpt-6-luna solo admite function calling mediante la Responses API, no Chat Completions (la que usa agintis). |
 | `LLM_API_KEY` | unset | no | yes | Clave del proveedor (usa un valor ficticio para servidores locales compatibles con OpenAI). |
 | `LLM_BASE_URL` | unset | no | no | Sobrescribe el endpoint del proveedor. |
 | `LLM_TEMPERATURE` | unset | no | no | 0..2; sin definir = el valor por defecto del proveedor (los modelos de razonamiento rechazan un valor personalizado). |

@@ -68,7 +68,7 @@ para ajustar nada:
 
 Por perfil: `guia` hit@5 1.0; `tutorial` hit@10 .727.
 
-Jueces en vivo (v9 para la tabla, `deepseek-chat`; generador `gpt-5.4-mini`; 2 volcados por conjunto):
+Jueces en vivo (v9 para la tabla, `deepseek-chat`; generador `gpt-5.4-mini`; 2 volcados por conjunto; el modelo por defecto de la plataforma ahora es gpt-6-luna, así que para reproducir usa `LLM_MODEL=gpt-5.4-mini LLM_REASONING_EFFORT=`):
 
 | set    | metric              | dump 1 | dump 2 |
 |--------|---------------------|--------|--------|
