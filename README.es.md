@@ -142,7 +142,11 @@ más los otros extras que uses (`--all-extras` lo incluye); Docker:
 2. Corpus: `index/documents.jsonl` (una fila por documento, títulos desde `document_metadata.title`
    o el H1 del parser) y los archivos bajo `samples/` con `samples/_manifest.json`. Escribe un
    script en `fetch/` que produzca ambos. Tras una nueva descarga que cambió o eliminó fuentes, ingesta
-   con `--prune` (índice completo, sin `--limit`).
+   con `--prune` (índice completo, sin `--limit`). Tras una ingesta o reversión masiva (miles de
+   chunks insertados y borrados), los resultados de HNSW de pgvector ya no son idénticos a los de
+   antes, ni siquiera tras `VACUUM` (medido: el MRR con routing se movió +-0.005 con el mismo
+   routing). Vuelve a medir tus baselines después de cambios masivos, o haz `REINDEX` del índice HNSW
+   tras una reversión masiva si necesitas reproducibilidad exacta.
 3. `agents/*.yaml`: la especificación del agente (ver abajo).
 4. `calibration/in_dev.jsonl` y `ood.jsonl`: preguntas de desarrollo dentro y fuera del dominio, con
    trampas de dominio cercano verificadas contra el corpus. Calibra los umbrales de evidencia:
