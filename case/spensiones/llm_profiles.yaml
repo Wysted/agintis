@@ -8,7 +8,8 @@ profiles:
   # (China): fine for the public spensiones corpus, review it before judging private data.
   judge:
     provider: deepseek
-    model: deepseek-chat
+    model: deepseek-flash  # deepseek-chat was retired and served as deepseek-flash non-thinking
+    reasoning_effort: none  # reasoning off keeps the judge identical to the earlier runs
     api_key_env: DEEPSEEK_API_KEY
     temperature: 0
     timeout_seconds: 60
