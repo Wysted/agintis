@@ -15,7 +15,9 @@ from agintis.modules.knowledge.api import (
     load_profiles_dir,
     parse_profile,
 )
+from agintis.modules.knowledge.application.ingest_batch import REVERT_LOOKUP_SIZE
 from agintis.modules.knowledge.domain import RagProfile, RoutingCondition, RoutingRule
+from agintis.platform.db.criteria import MAX_IN_VALUES
 from agintis.shared_kernel.ids import TenantId
 from tests.fakes.clock import FixedClock
 from tests.fakes.knowledge import (
@@ -427,6 +429,56 @@ class TestPrune:
             d.profile == "old" and d.source_uri == "a" and d.tenant_id == tenant
             for d in documents.items.values()
         )
+
+
+class TestRevert:
+    async def _seeded(self) -> tuple[IngestBatch, InMemoryDocumentRepository]:
+        batch, documents, _ = _rerouting_batch()
+        await batch.execute(
+            TenantId("t"), [_source("a", to="old"), _source("b", to="old"), _source("c", to="new")]
+        )
+        await batch.execute(TenantId("other"), [_source("a", to="old")])
+        return batch, documents
+
+    async def test_a_dry_run_lists_and_deletes_nothing(self) -> None:
+        batch, documents = await self._seeded()
+        before = len(documents.items)
+        found = await batch.revert(TenantId("t"), ["a", "c"], apply=False)
+        assert sorted(d.source_uri for d in found) == ["a", "c"]
+        assert len(documents.items) == before
+
+    async def test_apply_deletes_only_the_listed_sources_of_the_tenant(self) -> None:
+        batch, documents = await self._seeded()
+        removed = await batch.revert(TenantId("t"), ["a", "c", "zzz"], apply=True)
+        assert sorted(d.source_uri for d in removed) == ["a", "c"]
+        left = {(d.tenant_id, d.source_uri) for d in documents.items.values()}
+        assert left == {("t", "b"), ("other", "a")}
+
+    def test_the_lookup_size_fits_the_sql_in_cap(self) -> None:
+        assert REVERT_LOOKUP_SIZE <= MAX_IN_VALUES
+
+    async def test_a_large_list_of_sources_stays_under_the_in_cap(self) -> None:
+        batch, _ = await self._seeded()
+        # The fake raises like the SQL converter when one lookup exceeds MAX_IN_VALUES.
+        uris = [f"u{i}" for i in range(MAX_IN_VALUES * 2 + 1)]
+        assert await batch.revert(TenantId("t"), uris, apply=False) == []
+
+    async def test_on_removed_sees_each_deletion(self) -> None:
+        batch, _ = await self._seeded()
+        seen: list[str] = []
+        await batch.revert(
+            TenantId("t"), ["a", "b"], apply=True, on_removed=lambda d: seen.append(d.source_uri)
+        )
+        assert sorted(seen) == ["a", "b"]
+
+    async def test_lookups_are_chunked(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        batch, documents = await self._seeded()
+        monkeypatch.setattr(
+            "agintis.modules.knowledge.application.ingest_batch.REVERT_LOOKUP_SIZE", 1
+        )
+        removed = await batch.revert(TenantId("t"), ["a", "b", "c"], apply=True)
+        assert len(removed) == 3
+        assert {d.tenant_id for d in documents.items.values()} == {"other"}
 
 
 class TestStreaming:

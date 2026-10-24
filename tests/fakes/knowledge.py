@@ -36,15 +36,29 @@ from agintis.modules.knowledge.domain import (
     chunk_filterable_fields,
     ensure_single_tenant,
 )
+from agintis.platform.db.criteria import MAX_IN_VALUES
 from agintis.shared_kernel.criteria import (
     Criteria,
     Filter,
     FilterExpr,
+    UnsupportedFilterError,
     ensure_fields,
     tenant_scoped,
 )
 from agintis.shared_kernel.criteria.in_memory import apply, matches
 from agintis.shared_kernel.ids import DocumentId, TenantId
+
+
+def _ensure_in_cap(expr: FilterExpr | None) -> None:
+    """Fail like the SQL converter does when an IN list is over its cap."""
+    if expr is None:
+        return
+    if isinstance(expr, Filter):
+        if isinstance(expr.value, tuple) and len(expr.value) > MAX_IN_VALUES:
+            raise UnsupportedFilterError(f"{expr.field!r} has {len(expr.value)} values")
+        return
+    for child in expr.exprs:
+        _ensure_in_cap(child)
 
 
 def _document_record(document: Document) -> dict[str, Any]:
@@ -174,6 +188,7 @@ class InMemoryDocumentRepository(DocumentRepository):
 
     async def matching(self, tenant_id: TenantId, criteria: Criteria) -> list[Document]:
         ensure_fields(criteria, self.FILTERABLE_FIELDS)
+        _ensure_in_cap(criteria.filter)
         scoped = replace(criteria, filter=tenant_scoped(tenant_id, criteria.filter))
         return apply(scoped, self.items.values(), as_record=_document_record)
 

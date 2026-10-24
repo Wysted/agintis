@@ -142,7 +142,20 @@ más los otros extras que uses (`--all-extras` lo incluye); Docker:
 2. Corpus: `index/documents.jsonl` (una fila por documento, títulos desde `document_metadata.title`
    o el H1 del parser) y los archivos bajo `samples/` con `samples/_manifest.json`. Escribe un
    script en `fetch/` que produzca ambos. Tras una nueva descarga que cambió o eliminó fuentes, ingesta
-   con `--prune` (índice completo, sin `--limit`).
+   con `--prune` (índice completo, sin `--limit`). Tras una ingesta o reversión masiva (miles de
+   chunks insertados y borrados), los resultados de HNSW de pgvector ya no son idénticos a los de
+   antes, ni siquiera tras `VACUUM` (medido: el MRR con routing se movió +-0.005 con el mismo
+   routing). Vuelve a medir tus baselines después de cambios masivos, o haz `REINDEX` del índice HNSW
+   tras una reversión masiva si necesitas reproducibilidad exacta.
+   Para deshacer un lote de ingesta de forma auditable, `uv run python -m agintis.cli.revert_ingest
+   --profiles ... --index <el mismo índice> --tenant <id>` lista (simulación, con conteos) los
+   documentos de ese tenant cuya fuente está en el índice (conexión de solo lectura), y `--apply`
+   los elimina (los chunks caen en cascada; cada eliminación queda en el log con su tenant). Las
+   URIs de las fuentes se resuelven como lo hizo la ingesta: el `url` del manifest de cada fila bajo
+   `--samples` (por defecto `<dir del índice>/../samples`), que puede diferir del `url` del índice;
+   las filas sin archivo local se omiten. `--apply` vuelve a resolver los documentos al ejecutarse,
+   así que una ingesta concurrente entre la simulación y el apply puede cambiar el conjunto. Si
+   nada coincide se imprime una advertencia (revisa el tenant).
 3. `agents/*.yaml`: la especificación del agente (ver abajo).
 4. `calibration/in_dev.jsonl` y `ood.jsonl`: preguntas de desarrollo dentro y fuera del dominio, con
    trampas de dominio cercano verificadas contra el corpus. Calibra los umbrales de evidencia:
@@ -202,6 +215,16 @@ Todo es offline; usa para el juez una familia de modelos distinta a la del gener
 
 Reglas: ajusta prompts, recuperación y umbrales solo con los conjuntos de calibración. Las `eval_questions` están
 reservadas: reporta sobre ellas, nunca ajustes con ellas.
+
+Método que funcionó para un cambio que AGREGA cobertura (una nueva familia de documentos o fuente).
+Júzgalo por NO INFERIORIDAD sobre lo que ya funcionaba, no por "debe mejorar":
+
+- Primero las etapas offline gratuitas (métricas de recuperación y de routing, sin LLM), después las corridas en vivo.
+- Al menos 3 corridas por brazo. El piso de tolerancia es el rango entre corridas del baseline B
+  (media N >= media B - rango(B)). Preregistra los umbrales y la regla de decisión antes de medir.
+- Una pérdida estable (una pregunta que el baseline acierta en >= 2/3 corridas y el brazo nuevo en 0)
+  se adjudica leyendo el contenido antes de decidir.
+- Los dumps de respuestas registran el uso de tokens por modelo, así que el costo de una corrida es auditable desde el dump.
 
 ## Notas de producción
 

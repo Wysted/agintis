@@ -122,6 +122,17 @@ class TestLoadingAndArguments:
         (question,) = load_questions(path)
         assert (question.id, question.profile, dict(question.locator)) == ("q", "p", {"a": 1})
 
+    def test_a_question_without_a_gold_profile_groups_under_none(self, tmp_path: Path) -> None:
+        path = tmp_path / "q.jsonl"
+        path.write_text(
+            json.dumps({"id": "q", "question": "?", "expected_snippet": "s"}) + "\n",
+            encoding="utf-8",
+        )
+        (question,) = load_questions(path)
+        assert question.profile == "none"
+        table = format_table([_outcome("q", 1, question.profile)], [1])
+        assert [line.split()[0] for line in table.splitlines()[1:]] == ["none", "OVERALL"]
+
     def test_ks_are_sorted_and_deduplicated(self) -> None:
         assert parse_ks("10, 3,1,3") == (1, 3, 10)
 

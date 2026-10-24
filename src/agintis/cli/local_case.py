@@ -101,6 +101,24 @@ def load_manifest(samples_dir: Path) -> dict[str, LocalFile]:
     return files
 
 
+def source_uris(index: Path, samples: Path) -> tuple[list[str], int]:
+    """The `source_uri` ingest stored for each index row, plus the rows it never ingested.
+
+    Same resolution as `source_for`: the URI is the MANIFEST url of the row's id, and a row
+    without a usable local file was never ingested (counted, not listed).
+    """
+    files = load_manifest(samples)
+    uris: list[str] = []
+    skipped = 0
+    for row in iter_index(index):
+        local = files.get(str(row.get("id")))
+        if local is None:
+            skipped += 1
+        else:
+            uris.append(local.url)
+    return uris, skipped
+
+
 def source_for(row: Mapping[str, Any], files: Mapping[str, LocalFile]) -> SourceFile | None:
     """The row's local document as a `SourceFile`, or None when it was not downloaded.
 

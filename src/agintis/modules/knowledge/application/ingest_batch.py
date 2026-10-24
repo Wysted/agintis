@@ -25,10 +25,13 @@ empty batch, with no document ingested, is no evidence either). Unrouted sources
 source that is now unrouted keeps its old READY version (neither prune nor cleanup touches it).
 A source re-routed to another profile is protected under the old one too (the URI is in the
 batch): `cleanup_rerouted` owns that orphan.
+
+Revert: `revert` removes every version of an explicit list of sources (dry run unless `apply`),
+to undo an ingest batch auditably.
 """
 
 import logging
-from collections.abc import AsyncIterator, Collection, Iterable
+from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -40,6 +43,10 @@ from agintis.shared_kernel.errors import DomainError
 from agintis.shared_kernel.ids import TenantId
 
 logger = logging.getLogger(__name__)
+
+# Source URIs per lookup query. Must stay <= platform.db.criteria.MAX_IN_VALUES (256), which the
+# application layer cannot import (SQLAlchemy); a unit test pins the relation.
+REVERT_LOOKUP_SIZE = 200
 
 type BatchStatus = IngestStatus | Literal["unrouted", "failed"]
 
@@ -116,6 +123,43 @@ class IngestBatch:
                     logger.info(
                         "Pruned %s (%s) of profile %s", document.id, document.source_uri, profile
                     )
+        return removed
+
+    async def revert(
+        self,
+        tenant_id: TenantId,
+        source_uris: Collection[str],
+        *,
+        apply: bool,
+        on_removed: Callable[[Document], None] | None = None,
+    ) -> list[Document]:
+        """Documents of `source_uris` (every profile and status) of the tenant; deleted if `apply`.
+
+        Without `apply` nothing changes (dry run). Chunks go with their document. Each deletion
+        takes the source lock and is logged; `on_removed` is called right after it (a caller keeps
+        what was deleted if a later one raises). A document already gone is left out of the result.
+        """
+        found: list[Document] = []
+        uris = sorted(set(source_uris))
+        for start in range(0, len(uris), REVERT_LOOKUP_SIZE):
+            found += await self._ingest.find_by_sources(
+                tenant_id, uris[start : start + REVERT_LOOKUP_SIZE]
+            )
+        if not apply:
+            return found
+        removed: list[Document] = []
+        for document in found:
+            if await self._ingest.remove_rerouted(tenant_id, document):
+                removed.append(document)
+                logger.info(
+                    "Reverted %s (%s) of profile %s, tenant %s",
+                    document.id,
+                    document.source_uri,
+                    document.profile,
+                    tenant_id,
+                )
+                if on_removed is not None:
+                    on_removed(document)
         return removed
 
     async def _one(
