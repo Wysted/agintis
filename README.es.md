@@ -198,6 +198,7 @@ Todo es offline; usa para el juez una familia de modelos distinta a la del gener
 - Recuperación (sin LLM): `uv run python -m agintis.cli.eval --profiles ... --questions case/<name>/profiles/eval_questions.jsonl [--report out.json]` (hit@k, MRR; `--route --agents DIR` agrega la precisión del router).
 - Respuestas: `cli.dump_answers --profiles ... --agents ... --agent <id> --questions <jsonl> --out answers.jsonl`, luego `cli.judge --answers answers.jsonl [--report r.json]` (juez de respuestas v12, que califica a los agentes con citas inline igual que v11: fidelidad, soporte de citas, relevancia, corrección del rechazo, mezcla de escrituras; el soporte de citas no aplica a un agente con `citations: none` salvo que emita marcadores [n] de todos modos). Define `LLM_PROFILES_FILE` (perfiles con nombre, p. ej. `case/spensiones/llm_profiles.yaml`) y `EVAL_JUDGE_PROFILE` (o `--profile`); el juez se niega a calificar con el modelo que respondió salvo que uses `--allow-self-judge`.
 - Calidad del juez: `cli.agreement --labels <silver labels> --judgments <judge report>`.
+- Costo: cada llamada al LLM (corridas de chat y estos CLIs) queda en la tabla `llm_usage`; `cli.costs report [--by purpose|day|tenant|thread|model] [--since DATE] [--until DATE]` la valoriza con `LLM_PRICES_FILE` (las filas sin precio se listan aparte, nunca como $0).
 
 Reglas: ajusta prompts, recuperación y umbrales solo con los conjuntos de calibración. Las `eval_questions` están
 reservadas: reporta sobre ellas, nunca ajustes con ellas.
