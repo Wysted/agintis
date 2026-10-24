@@ -9,14 +9,17 @@ turn's value into the next one.
 
 Shared vs private (3.5b): the parent graph sees `messages`, `standalone_query`, `is_clear`,
 `confidence`, `query`, `scope_level`, `scope_score`, `routed_topics`, `topic_results`, `sources`,
-`previous_sources`, `attempts` and `answer`. A topic subgraph (`TopicState`, one Send per routed
-topic) keeps its retrieval working set (`filters`, the extracted conditions) PRIVATE and
-returns only a `topic_results` entry.
+`previous_sources`, `attempts`, `answer` and `cited_sources`. A topic subgraph (`TopicState`, one
+Send per routed topic) keeps its retrieval working set (`filters`, the extracted conditions)
+PRIVATE and returns only a `topic_results` entry.
 
 `topic_results` is an ACCUMULATING channel (parallel Send branches each append one entry), and a
 thread keeps channel values between turns, so a plain append would pile results up across turns
 and rewrite attempts: the node that starts a fan-out (`RouteNode`) writes `Overwrite([])` first,
 which bypasses the reducer and resets the channel.
+
+`cited_sources` is the opposite: an `or_` channel that is never reset (one entry per answer of the
+thread, keyed by message id), the only state a transcript needs besides `messages`.
 """
 
 import operator
@@ -59,6 +62,14 @@ class SourceItem(TypedDict):
     rerank_score: NotRequired[float]
     lexical_rank: NotRequired[int]
     dense_rank: NotRequired[int]
+
+
+class CitedSourceItem(TypedDict):
+    """What a client sees of a source (the SSE `sources` item); no text (lean checkpoints)."""
+
+    source: str
+    title: str | None
+    locator: str | None
 
 
 class RoutedTopic(TypedDict):
@@ -133,3 +144,7 @@ class RagState(TypedDict):
     refusal_reason: NotRequired[RefusalReason | None]
     # SynthesizeNode (or RefuseNode): the final text (it is also appended to `messages`).
     answer: NotRequired[str]
+    # SynthesizeNode: the sources each answer cited, keyed by the id of its AIMessage. Merged with
+    # `or_` so earlier turns are kept (the transcript reads them back); never reset. Kept out of
+    # the message itself: state messages are replayed to the provider.
+    cited_sources: NotRequired[Annotated[dict[str, list[CitedSourceItem]], operator.or_]]

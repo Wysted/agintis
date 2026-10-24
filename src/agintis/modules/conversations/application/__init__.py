@@ -12,12 +12,16 @@ from agintis.modules.conversations.application.list_threads import (
 from agintis.modules.conversations.application.ports import (
     THREAD_FILTERABLE_FIELDS,
     AgentDirectory,
+    MessageSource,
     NoPendingQuestions,
     NoThreadState,
+    NoThreadTranscript,
     PendingQuestion,
     PendingQuestions,
+    ThreadMessage,
     ThreadRepository,
     ThreadStateStore,
+    ThreadTranscript,
 )
 from agintis.modules.conversations.application.run_leases import AcquireRunLease, ReleaseRunLease
 from agintis.modules.conversations.application.services import ThreadsServices
@@ -32,14 +36,18 @@ __all__ = [
     "DeleteThread",
     "GetThread",
     "ListThreads",
+    "MessageSource",
     "NoPendingQuestions",
     "NoThreadState",
+    "NoThreadTranscript",
     "PendingQuestion",
     "PendingQuestions",
     "ReleaseRunLease",
     "ThreadDetail",
+    "ThreadMessage",
     "ThreadPage",
     "ThreadRepository",
     "ThreadStateStore",
+    "ThreadTranscript",
     "ThreadsServices",
 ]

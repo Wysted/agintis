@@ -73,7 +73,13 @@ curl -s localhost:8000/v1/threads -H 'Content-Type: application/json' -H 'X-Tena
   -d '{"agent_id": "fastapi-es-rag"}'             # -> {"id": "<thread_id>", ...}
 curl -N localhost:8000/v1/threads/<thread_id>/runs/stream \
   -H 'Content-Type: application/json' -H 'X-Tenant-Id: default' -d '{"message": "..."}'
+curl -s localhost:8000/v1/threads/<thread_id>/messages -H 'X-Tenant-Id: default'
 ```
+
+`GET /v1/threads/<thread_id>/messages` devuelve la transcripción (`{"items": [{"role", "text", "sources"}]}`,
+de más antiguo a más nuevo) para que una UI reconstruya la conversación; los marcadores `[n]` de un mensaje del
+asistente indexan sus `sources`. Los hilos respondidos antes de que existiera este endpoint devuelven
+sus respuestas con `sources` vacío.
 
 Con `AUTH_TENANT_RESOLVER=jwt` envía `Authorization: Bearer <token>` en lugar de `X-Tenant-Id`. Para
 pruebas locales, genera uno con un par de claves desechable:

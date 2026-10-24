@@ -15,12 +15,15 @@ from agintis.modules.agents_catalog.api import (
 )
 from agintis.modules.conversations.api import (
     AgentDirectory,
+    MessageSource,
     PendingQuestion,
     PendingQuestions,
     RunMode,
+    ThreadMessage,
     ThreadsServices,
     ThreadStateStore,
     ThreadStatus,
+    ThreadTranscript,
 )
 from agintis.platform.checkpointer import Checkpointer
 from agintis.shared_kernel.errors import FailureInfo
@@ -81,6 +84,26 @@ class AgentsPendingQuestions(PendingQuestions):
             return ()  # the agent was removed: there is nobody to ask
         pending = await self._registry.get(agent_id).pending_interrupts(thread_id)
         return tuple(PendingQuestion(c.interrupt_id, c.question, c.options) for c in pending)
+
+
+class AgentsThreadTranscript(ThreadTranscript):
+    """`conversations.ThreadTranscript` over the runner's view of its checkpoint."""
+
+    def __init__(self, registry: AgentRegistry) -> None:
+        self._registry = registry
+
+    async def for_thread(self, agent_id: str, thread_id: ThreadId) -> tuple[ThreadMessage, ...]:
+        if agent_id not in self._registry:
+            return ()  # the agent was removed: its state is unreadable
+        turns = await self._registry.get(agent_id).thread_messages(thread_id)
+        return tuple(
+            ThreadMessage(
+                t.role,
+                t.text,
+                tuple(MessageSource(s.source, s.title, s.locator) for s in t.sources),
+            )
+            for t in turns
+        )
 
 
 class CheckpointerStateStore(ThreadStateStore):

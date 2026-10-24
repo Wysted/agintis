@@ -56,6 +56,14 @@ class _ObservedModel(ScriptedChatModel):
         return super()._next(messages)
 
 
+class _NoIdModel(ScriptedChatModel):
+    """A provider whose replies carry no message id."""
+
+    async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
+        reply = await super().ainvoke(*args, **kwargs)
+        return reply.model_copy(update={"id": None})
+
+
 class TestAnalyze:
     async def test_contextualizes_with_the_history_and_stores_the_clarity_fields(self) -> None:
         model = ScriptedChatModel(structured=[_analysis(standalone_query="Who wrote X?")])
@@ -538,6 +546,46 @@ class TestSynthesize:
             Sources((SourceRef("s1", "Title 1", "p. 1"), SourceRef("s2", "Title 2", "p. 2")))
         ]
         assert at_model_call == [1]  # the event was already out when the model was invoked
+
+    async def test_cited_sources_map_the_reply_id_to_the_items_of_the_sources_event(self) -> None:
+        events: list[Any] = []
+        model = ScriptedChatModel(replies=["ok [1]"])
+        state: Any = {"messages": [HumanMessage("what?")], "sources": _sources("a", "b")}
+
+        result = await SynthesizeNode(chat_models_for(model))(state, runtime_for(events=events))
+
+        (reply,) = result["messages"]
+        assert reply.id
+        (sources_event,) = events
+        assert result["cited_sources"] == {
+            reply.id: [
+                {"source": r.source, "title": r.title, "locator": r.locator}
+                for r in sources_event.items
+            ]
+        }
+        assert result["cited_sources"][reply.id][0] == {
+            "source": "s1",
+            "title": "Title 1",
+            "locator": "p. 1",
+        }  # no text: the checkpoint stays lean
+
+    async def test_a_reply_without_an_id_gets_one(self) -> None:
+        model = _NoIdModel(replies=["ok [1]"])
+        state: Any = {"messages": [HumanMessage("what?")], "sources": _sources("a")}
+
+        result = await SynthesizeNode(chat_models_for(model))(state, runtime_for())
+
+        (reply,) = result["messages"]
+        assert reply.id
+        assert list(result["cited_sources"]) == [reply.id]
+
+    async def test_no_sources_cite_nothing(self) -> None:
+        model = ScriptedChatModel(replies=["I do not know."])
+        state: Any = {"messages": [HumanMessage("what?")], "sources": []}
+
+        result = await SynthesizeNode(chat_models_for(model))(state, runtime_for())
+
+        assert not result.get("cited_sources")
 
     async def test_emits_nothing_without_sources(self) -> None:
         events: list[Any] = []

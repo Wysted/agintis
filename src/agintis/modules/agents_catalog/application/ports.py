@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
-from agintis.modules.agents_catalog.domain import Clarification, RunnerEvent
+from agintis.modules.agents_catalog.domain import Clarification, RunnerEvent, TranscriptMessage
 from agintis.shared_kernel.errors import AppError, ErrorKind
 from agintis.shared_kernel.ids import RunId, TenantId, ThreadId
 
@@ -147,6 +147,12 @@ class AgentRunner(ABC):
         The source of truth for the thread status: the checkpoint, not the `threads` row.
         Runners without thread support have none.
         """
+        return ()
+
+    async def thread_messages(self, thread_id: ThreadId) -> tuple[TranscriptMessage, ...]:
+        """The chat turns kept in the thread's state, oldest first (user and assistant only),
+        each assistant turn with the sources its citations index. Runners without thread
+        support, or a thread without state, have none."""
         return ()
 
     @abstractmethod

@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from agintis.bootstrap.adapters import AgentsThreadTranscript
 from agintis.bootstrap.container import Container, StartupError
 from agintis.modules.agents_catalog.api import RunAgent, ThreadsUnavailableError
 from agintis.modules.conversations.application import NoThreadState
@@ -33,6 +34,7 @@ def test_threads_are_wired_over_postgres_and_the_agent_can_hold_a_conversation()
     assert isinstance(container.checkpointer, Checkpointer)
     assert container.agents_catalog.registry.get("direct-chat").supports_threads is True
     assert isinstance(container.threads.create._threads, PgThreadRepository)
+    assert isinstance(container.threads.get._transcript, AgentsThreadTranscript)
 
 
 async def test_disabled_checkpointer_means_no_pool_and_no_thread_runs() -> None:

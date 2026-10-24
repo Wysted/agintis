@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from agintis.agent_kit.runtime import TracedRunner
 from agintis.bootstrap.adapters import (
     AgentsPendingQuestions,
+    AgentsThreadTranscript,
     ChainedErrorClassifier,
     CheckpointerStateStore,
     ConversationsThreadAccess,
@@ -349,7 +350,9 @@ class Container:
                 clock,
                 threads_enabled=checkpointer is not None,
             ),
-            get=GetThread(thread_repository, AgentsPendingQuestions(agents)),
+            get=GetThread(
+                thread_repository, AgentsPendingQuestions(agents), AgentsThreadTranscript(agents)
+            ),
             list=ListThreads(thread_repository),
             delete=DeleteThread(thread_repository, state_store),
             acquire_lease=AcquireRunLease(

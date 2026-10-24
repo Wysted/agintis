@@ -42,6 +42,7 @@ from agintis.modules.agents_catalog.domain import (
     StepStatus,
     Token,
     TokenUsage,
+    TranscriptMessage,
 )
 
 __all__ = [
@@ -80,4 +81,5 @@ __all__ = [
     "ThreadsUnavailableError",
     "Token",
     "TokenUsage",
+    "TranscriptMessage",
 ]
