@@ -7,7 +7,9 @@ from langchain_core.language_models import BaseChatModel, GenericFakeChatModel
 from langchain_core.language_models.model_profile import ModelProfile
 from langchain_core.messages import AIMessage
 
+from agintis.bootstrap.llm import build_chat_models
 from agintis.platform.llm import (
+    PROVIDER_KWARGS,
     ChatModels,
     ChatRole,
     LlmConfig,
@@ -58,6 +60,8 @@ def _clean_llm_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(f"LLM_{name}", raising=False)
     for name in ("MAX_RETRIES", "ROUTER_MODEL", "ANALYZER_MODEL", "SYNTHESIS_MODEL"):
         monkeypatch.delenv(f"LLM_{name}", raising=False)
+    for name in ("REASONING_EFFORT", "PROFILES_FILE"):
+        monkeypatch.delenv(f"LLM_{name}", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
 
@@ -103,6 +107,55 @@ def test_settings_read_flat_env_and_keep_the_secret(monkeypatch: pytest.MonkeyPa
 def test_settings_reject_invalid_provider(provider: str) -> None:
     with pytest.raises(ValueError, match="provider"):
         make_settings(llm={"provider": provider})
+
+
+def test_settings_default_to_luna_with_reasoning_off() -> None:
+    llm = make_settings().llm
+    assert llm.model == "gpt-6-luna"
+    assert llm.reasoning_effort == "none"
+
+
+def test_settings_empty_reasoning_effort_means_the_api_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "")
+    llm = make_settings(llm={"provider": "anthropic"}).llm
+    assert llm.reasoning_effort is None
+
+
+@pytest.mark.parametrize("provider", ["anthropic", "ollama", "deepseek"])
+def test_settings_refuse_an_explicit_reasoning_effort_for_other_providers(
+    monkeypatch: pytest.MonkeyPatch, provider: str
+) -> None:
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "none")
+    with pytest.raises(ValueError, match="LLM_REASONING_EFFORT is only supported"):
+        make_settings(llm={"provider": provider})
+
+
+def _default_kwargs(**llm: Any) -> dict[str, Any]:
+    """The client kwargs the platform default profile maps to, built from the settings."""
+    profile = build_chat_models(make_settings(llm=llm)).catalog.resolve(ChatRole.SYNTHESIS)[1]
+    return PROVIDER_KWARGS[profile.provider](profile)
+
+
+@pytest.mark.parametrize(
+    "llm",
+    [{"provider": "anthropic"}, {"provider": "ollama"}, {"provider": "deepseek", "api_key": "k"}],
+    ids=lambda llm: llm["provider"],
+)
+def test_the_default_reasoning_effort_never_reaches_other_providers(llm: dict[str, Any]) -> None:
+    assert "reasoning_effort" not in _default_kwargs(**llm)
+
+
+def test_the_openai_default_turns_reasoning_off() -> None:
+    assert _default_kwargs(provider="openai")["reasoning_effort"] == "none"
+
+
+def test_an_unset_reasoning_effort_is_not_passed_to_openai(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "")
+    assert "reasoning_effort" not in _default_kwargs(provider="openai")
 
 
 # --- factory ----------------------------------------------------------------------------------

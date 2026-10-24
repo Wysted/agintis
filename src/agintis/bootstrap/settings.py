@@ -25,6 +25,7 @@ from agintis.modules.knowledge.infrastructure.parsers.limits import (
 from agintis.platform.auth import DEFAULT_ALGORITHMS, disallowed_algorithms
 from agintis.platform.http.tenant import TENANT_PATTERN
 from agintis.platform.llm import ChatRole
+from agintis.platform.llm.profiles import ReasoningEffort
 from agintis.platform.observability import parse_headers
 
 SQLALCHEMY_PSYCOPG_SCHEME = "postgresql+psycopg://"
@@ -172,7 +173,7 @@ class AgentsSettings(BaseSettings):
         return None if value == "" else value
 
 
-DEFAULT_LLM_MODEL = "gpt-5.4-mini"
+DEFAULT_LLM_MODEL = "gpt-6-luna"
 DEFAULT_LLM_TIMEOUT_SECONDS = 60.0
 
 
@@ -205,6 +206,10 @@ class LlmSettings(BaseSettings):
     # default). langchain-openai defaults it to True only without a base_url / OPENAI_BASE_URL,
     # so OpenAI-compatible servers need LLM_STREAM_USAGE=true to report usage.
     stream_usage: bool | None = None
+    # openai only; "none" = reasoning off (Luna's API default, medium, bills reasoning tokens and
+    # failed the spensiones floors). Empty = the API default. The default is dropped for other
+    # providers; an explicit value with one is refused below.
+    reasoning_effort: ReasoningEffort | None = "none"
     router_model: str | None = Field(default=None, min_length=1)
     # The analyzer needs structured output (checked at boot).
     analyzer_model: str | None = Field(default=None, min_length=1)
@@ -221,6 +226,7 @@ class LlmSettings(BaseSettings):
         "temperature",
         "max_retries",
         "stream_usage",
+        "reasoning_effort",
         "router_model",
         "analyzer_model",
         "synthesis_model",
@@ -230,6 +236,19 @@ class LlmSettings(BaseSettings):
     @classmethod
     def _empty_means_none(cls, value: object) -> object:
         return None if value == "" else value
+
+    @model_validator(mode="after")
+    def _reasoning_effort_is_openai_only(self) -> Self:
+        if (
+            self.reasoning_effort is not None
+            and "reasoning_effort" in self.model_fields_set
+            and self.provider not in (None, "openai")
+        ):
+            raise ValueError(
+                f"LLM_REASONING_EFFORT is only supported by LLM_PROVIDER 'openai', not "
+                f"{self.provider!r}: set it empty (agintis only maps it for openai)"
+            )
+        return self
 
     def model_for(self, role: ChatRole) -> str:
         override: str | None = getattr(self, f"{role.value}_model")
