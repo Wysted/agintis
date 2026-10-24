@@ -10,12 +10,14 @@ from agintis.modules.conversations.api import (
     GetThread,
     InvalidCursorError,
     ListThreads,
+    MessageSource,
     PendingQuestion,
     ReleaseRunLease,
     RunMode,
     ThreadAgentNotFoundError,
     ThreadAgentUnsupportedError,
     ThreadBusyError,
+    ThreadMessage,
     ThreadNotFoundError,
     ThreadsDisabledError,
     ThreadStatus,
@@ -29,6 +31,7 @@ from tests.fakes.conversations import (
     FakeAgentDirectory,
     FakePendingQuestions,
     FakeThreadStateStore,
+    FakeThreadTranscript,
     InMemoryThreadRepository,
 )
 
@@ -50,7 +53,11 @@ class World:
             self.clock,
             id_generator=self._next_id,
         )
-        self.get = GetThread(self.repo, self.questions)
+        self.transcript = FakeThreadTranscript(
+            ThreadMessage("user", "hi"),
+            ThreadMessage("assistant", "hello [1]", (MessageSource("doc", "Doc", "p. 1"),)),
+        )
+        self.get = GetThread(self.repo, self.questions, self.transcript)
         self.list = ListThreads(self.repo, max_page_size=3)
         self.delete = DeleteThread(self.repo, self.state)
         self.acquire = AcquireRunLease(self.repo, TTL)
@@ -110,6 +117,23 @@ async def test_detail_reads_the_pending_questions_only_for_an_interrupted_thread
     with pytest.raises(ThreadNotFoundError):
         await world.get.detail(B, thread.id)
     assert world.questions.calls == [("chat", thread.id)]  # the tenant check came first
+
+
+async def test_messages_come_from_the_transcript_port_of_the_threads_agent(world: World) -> None:
+    thread = await world.create.execute(A, "chat")
+
+    assert await world.get.messages(A, thread.id) == world.transcript.messages
+    assert world.transcript.calls == [("chat", thread.id)]
+
+
+async def test_messages_check_the_tenant_before_reading_the_transcript(world: World) -> None:
+    thread = await world.create.execute(A, "chat")
+
+    with pytest.raises(ThreadNotFoundError):
+        await world.get.messages(B, thread.id)
+    with pytest.raises(ThreadNotFoundError):
+        await world.get.messages(A, ThreadId("missing"))
+    assert world.transcript.calls == []
 
 
 async def test_get_is_tenant_scoped(world: World) -> None:

@@ -15,6 +15,7 @@ from agintis.modules.agents_catalog.api import (
     ThreadRunMode,
     ThreadRunTicket,
     Token,
+    TranscriptMessage,
 )
 from agintis.shared_kernel.ids import TenantId, ThreadId
 
@@ -33,7 +34,9 @@ class FakeRunner(AgentRunner):
         supports_threads: bool = False,
         pending: Sequence[Clarification] = (),
         pending_error: Exception | None = None,
+        messages: Sequence[TranscriptMessage] = (),
     ) -> None:
+        self.messages = tuple(messages)  # what the "checkpoint" holds as chat turns
         self.pending = tuple(pending)  # what the "checkpoint" holds; tests may change it
         self._pending_error = pending_error
         self._supports_threads = supports_threads
@@ -60,6 +63,9 @@ class FakeRunner(AgentRunner):
         if self._pending_error is not None:
             raise self._pending_error
         return self.pending
+
+    async def thread_messages(self, thread_id: ThreadId) -> tuple[TranscriptMessage, ...]:
+        return self.messages
 
     def ensure_available(self) -> None:
         if self._unavailable:

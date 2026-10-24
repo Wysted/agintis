@@ -13,6 +13,7 @@ from sqlalchemy.engine import URL
 
 from agintis.bootstrap.adapters import (
     AgentsPendingQuestions,
+    AgentsThreadTranscript,
     CheckpointerStateStore,
     ConversationsThreadAccess,
     RegistryAgentDirectory,
@@ -35,7 +36,7 @@ from agintis.platform.checkpointer import Checkpointer
 from agintis.platform.clock import SystemClock
 from agintis.platform.db import create_session_factory
 from agintis.platform.llm import ProviderErrorClassifier
-from tests.fakes.graphs import asking_graph, threaded
+from tests.fakes.graphs import asking_graph, cited_graph, threaded
 from tests.support.postgres import libpq_dsn, postgres_engines
 from tests.support.settings import make_settings
 from tests.unit.test_agents_http import _frames
@@ -58,7 +59,8 @@ async def client(pg_test_url: URL) -> AsyncIterator[tuple[httpx.AsyncClient, Che
     await checkpointer.open(wait=True)
     await checkpointer.setup()
     toy = threaded(lambda s: asking_graph("Which one?", s), "ask", checkpointer.saver)
-    registry = AgentRegistry((toy.runner,))
+    cite = threaded(cited_graph, "cite", checkpointer.saver)
+    registry = AgentRegistry((toy.runner, cite.runner))
     async with postgres_engines(pg_test_url) as (engine, _lock_engine):
         factory = create_session_factory(engine)
         async with factory.begin() as session:
@@ -66,7 +68,7 @@ async def client(pg_test_url: URL) -> AsyncIterator[tuple[httpx.AsyncClient, Che
         repo = PgThreadRepository(factory)
         threads = ThreadsServices(
             create=CreateThread(repo, RegistryAgentDirectory(registry), SystemClock()),
-            get=GetThread(repo, AgentsPendingQuestions(registry)),
+            get=GetThread(repo, AgentsPendingQuestions(registry), AgentsThreadTranscript(registry)),
             list=ListThreads(repo),
             delete=DeleteThread(repo, CheckpointerStateStore(checkpointer)),
             acquire_lease=AcquireRunLease(repo, timedelta(minutes=5)),
@@ -121,6 +123,16 @@ async def test_interrupt_resume_and_delete_over_postgres(
     assert _frames(resumed.text)[-1]["data"]["finish_reason"] == "stop"
     assert idle == "idle"
 
+    messages = await http.get(f"/v1/threads/{thread_id}/messages", headers=ACME)
+    assert messages.json() == {
+        "items": [
+            {"role": "user", "text": "start", "sources": []},
+            {"role": "assistant", "text": "you chose blue", "sources": []},
+        ]
+    }  # read back from the persisted checkpoint
+    foreign_messages = await http.get(f"/v1/threads/{thread_id}/messages", headers=OTHER)
+    assert foreign_messages.status_code == HTTPStatus.NOT_FOUND
+
     key: RunnableConfig = {"configurable": {"thread_id": thread_id}}
     assert await checkpointer.saver.aget_tuple(key) is not None
 
@@ -129,3 +141,31 @@ async def test_interrupt_resume_and_delete_over_postgres(
     assert deleted.status_code == HTTPStatus.NO_CONTENT
     assert (await http.get(f"/v1/threads/{thread_id}", headers=ACME)).status_code == 404
     assert await checkpointer.saver.aget_tuple(key) is None
+
+
+async def test_cited_sources_survive_the_postgres_checkpoint(
+    client: tuple[httpx.AsyncClient, Checkpointer],
+) -> None:
+    http, _checkpointer = client
+    created = await http.post("/v1/threads", json={"agent_id": "cite"}, headers=ACME)
+    thread_id = created.json()["id"]
+    for message in ("first", "second"):
+        run = await http.post(
+            f"/v1/threads/{thread_id}/runs/stream", json={"message": message}, headers=ACME
+        )
+        assert _frames(run.text)[-1]["data"]["finish_reason"] == "stop"
+
+    messages = await http.get(f"/v1/threads/{thread_id}/messages", headers=ACME)
+
+    assert messages.json() == {
+        "items": [
+            {"role": "user", "text": "first", "sources": []},
+            {"role": "assistant", "text": "answer 1", "sources": []},
+            {"role": "user", "text": "second", "sources": []},
+            {
+                "role": "assistant",
+                "text": "answer 2",
+                "sources": [{"source": "doc-2", "title": "Doc", "locator": None}],
+            },
+        ]
+    }

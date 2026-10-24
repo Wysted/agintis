@@ -3,6 +3,7 @@
 import logging
 import re
 from typing import Any
+from uuid import uuid4
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
@@ -11,7 +12,7 @@ from agintis.agent_kit import source_text
 from agintis.agent_kit.nodes.history import MAX_HISTORY_MESSAGES, last_human_text, recent_history
 from agintis.agent_kit.nodes.prompts import DEFAULT_SYNTHESIZE_PROMPT
 from agintis.agent_kit.nodes.sources import SourceLimits, select_sources
-from agintis.agent_kit.nodes.state import RagState, SourceItem
+from agintis.agent_kit.nodes.state import CitedSourceItem, RagState, SourceItem
 from agintis.agent_kit.runtime import AgentContext, emit, streamed
 from agintis.modules.agents_catalog.api import SourceRef, Sources
 from agintis.platform.llm import ChatModels, ChatRole
@@ -68,6 +69,8 @@ class SynthesizeNode:
     `select_sources`) and sent right before the model call, so the client gets it before the first
     token on every path to the answer (including the rewrite loop ending without a new merge) and
     its order matches the `[n]` of the answer. Nothing is emitted when there are no sources.
+    The same items are written to `cited_sources` under the reply's message id, so a transcript
+    can show them again later.
     """
 
     def __init__(
@@ -102,10 +105,14 @@ class SynthesizeNode:
     async def __call__(self, state: RagState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
         model = streamed(self._chat_models.get(ChatRole.SYNTHESIS))
         selected = self.selected_sources(state)
-        if selected:
+        cited = [
+            CitedSourceItem(source=s["source"], title=s["title"], locator=s["locator"])
+            for s in selected
+        ]
+        if cited:
             emit(
                 runtime,
-                Sources(tuple(SourceRef(s["source"], s["title"], s["locator"]) for s in selected)),
+                Sources(tuple(SourceRef(c["source"], c["title"], c["locator"]) for c in cited)),
             )
         rendered = render_sources(selected)
         reply = await model.ainvoke(self.prompt_messages(state, rendered))
@@ -118,4 +125,9 @@ class SynthesizeNode:
             # Count plus a few truncated tokens: answer text is user content, keep the log small.
             sample = [t[:_STRAY_SAMPLE_CHARS] for t in stray[:_STRAY_SAMPLE_TOKENS]]
             logger.warning("Answer has %d word(s) in a foreign script, e.g. %r", len(stray), sample)
-        return {"messages": [reply], "answer": reply.text}
+        if not reply.id:  # the sources are keyed by it
+            reply = reply.model_copy(update={"id": str(uuid4())})
+        update: dict[str, Any] = {"messages": [reply], "answer": reply.text}
+        if cited:  # an empty write would still re-serialize the thread's whole map
+            update["cited_sources"] = {reply.id: cited}
+        return update

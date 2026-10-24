@@ -29,10 +29,12 @@ cannot run without a thread id, so stateless runs keep the plain `graph`). `RunI
 becomes `Command(resume={interrupt_id: value})`: always an explicit id map (LangGraph raises on a
 bare value with several pending interrupts and takes a dict of 32-hex keys for an id map).
 `pending_interrupts` reads the unanswered interrupts from the checkpoint (the source of truth for
-the thread status). A task that ends with `interrupts` pauses the run: each distinct interrupt
-becomes a `Clarification` carrying its `interrupt_id` (see `clarification_from_interrupt`) and
-the run finishes with `RunCompleted(finish_reason="interrupted")`. LangGraph discards a pending
-interrupt when NEW input (not a resume) reaches the thread: callers must resume it first.
+the thread status); `thread_messages` reads the chat turns (human and AI messages, plus the
+sources the state's `cited_sources` channel keeps per AI message id). A task that ends with
+`interrupts` pauses the run: each distinct interrupt becomes a `Clarification` carrying its
+`interrupt_id` (see `clarification_from_interrupt`) and the run finishes with
+`RunCompleted(finish_reason="interrupted")`. LangGraph discards a pending interrupt when NEW input
+(not a resume) reaches the thread: callers must resume it first.
 
 Nothing is swallowed: node exceptions and `CancelledError` propagate; `RunAgent` classifies them.
 Graph nodes must be `async`: a sync node runs in a thread and cannot be cancelled when the
@@ -65,9 +67,11 @@ from agintis.modules.agents_catalog.api import (
     RunCompleted,
     RunInput,
     RunnerEvent,
+    SourceRef,
     Step,
     Token,
     TokenUsage,
+    TranscriptMessage,
 )
 from agintis.shared_kernel.ids import ThreadId
 
@@ -289,6 +293,23 @@ class LangGraphRunner(AgentRunner):
             clarification_from_interrupt(interrupt.value, interrupt.id)
             for interrupt in snapshot.interrupts
         )
+
+    async def thread_messages(self, thread_id: ThreadId) -> tuple[TranscriptMessage, ...]:
+        if self._thread_graph is None:
+            return ()
+        snapshot = await self._thread_graph.aget_state({"configurable": {"thread_id": thread_id}})
+        cited = snapshot.values.get("cited_sources", {})
+        turns: list[TranscriptMessage] = []
+        for message in snapshot.values.get("messages", []):
+            if isinstance(message, HumanMessage):
+                turns.append(TranscriptMessage("user", message.text))
+            elif isinstance(message, AIMessage):
+                sources = tuple(
+                    SourceRef(s["source"], s["title"], s["locator"])
+                    for s in cited.get(message.id, ())
+                )
+                turns.append(TranscriptMessage("assistant", message.text, sources))
+        return tuple(turns)
 
     async def astream(self, run_input: RunInput) -> AsyncGenerator[RunnerEvent]:
         state = _RunAccumulator()

@@ -13,7 +13,13 @@ ends there.
 
 from collections.abc import AsyncGenerator
 
-from agintis.modules.agents_catalog.api import AgentRunner, Clarification, RunInput, RunnerEvent
+from agintis.modules.agents_catalog.api import (
+    AgentRunner,
+    Clarification,
+    RunInput,
+    RunnerEvent,
+    TranscriptMessage,
+)
 from agintis.platform.observability import RunAttributes, Tracing
 from agintis.shared_kernel.ids import ThreadId
 
@@ -40,6 +46,9 @@ class TracedRunner(AgentRunner):
 
     async def pending_interrupts(self, thread_id: ThreadId) -> tuple[Clarification, ...]:
         return await self._runner.pending_interrupts(thread_id)
+
+    async def thread_messages(self, thread_id: ThreadId) -> tuple[TranscriptMessage, ...]:
+        return await self._runner.thread_messages(thread_id)
 
     async def astream(self, run_input: RunInput) -> AsyncGenerator[RunnerEvent]:
         attributes = RunAttributes(

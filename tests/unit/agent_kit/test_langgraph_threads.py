@@ -20,13 +20,16 @@ from agintis.modules.agents_catalog.api import (
     Clarification,
     RunCompleted,
     RunInput,
+    SourceRef,
     Step,
+    TranscriptMessage,
 )
 from agintis.shared_kernel.ids import RunId, TenantId, ThreadId
 from tests.fakes.graphs import (
     Graph,
     StreamingModel,
     asking_graph,
+    cited_graph,
     config_probe_graph,
     llm_graph,
     nested_in_node_graph,
@@ -339,3 +342,28 @@ async def test_malformed_payload_is_never_echoed_to_the_client() -> None:
     assert any(isinstance(e, Clarification) and e.question == FALLBACK_QUESTION for e in events)
     assert "SECRET-STATE" not in repr(events)
     assert events[-1] == RunCompleted("interrupted")
+
+
+async def test_thread_messages_are_the_chat_turns_in_order_with_their_cited_sources() -> None:
+    toy = threaded(cited_graph)
+    await _events(toy.runner, _input("first"))
+    await _events(toy.runner, _input("second"))
+
+    assert await toy.runner.thread_messages(THREAD) == (
+        TranscriptMessage("user", "first"),
+        TranscriptMessage("assistant", "answer 1"),  # no sources cited
+        TranscriptMessage("user", "second"),
+        TranscriptMessage("assistant", "answer 2", (SourceRef("doc-2", "Doc", None),)),
+    )  # the system note of each turn is not a chat turn
+
+
+async def test_thread_messages_of_a_thread_without_checkpoint_are_empty() -> None:
+    toy = threaded(cited_graph)
+
+    assert await toy.runner.thread_messages(THREAD) == ()
+
+
+async def test_thread_messages_of_a_runner_without_checkpointer_are_empty() -> None:
+    runner = LangGraphRunner("toy", "d", state_probe_graph([]))
+
+    assert await runner.thread_messages(THREAD) == ()

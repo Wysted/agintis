@@ -31,6 +31,16 @@ class SourceRef:
 
 
 @dataclass(frozen=True, slots=True)
+class TranscriptMessage:
+    """One chat turn of a thread, as a client shows it. `sources` are the ones an assistant
+    turn's `[n]` citations index (empty for user turns and answers that cited nothing)."""
+
+    role: Literal["user", "assistant"]
+    text: str
+    sources: tuple[SourceRef, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class TokenUsage:
     input_tokens: int
     output_tokens: int

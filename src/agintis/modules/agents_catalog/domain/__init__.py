@@ -18,6 +18,7 @@ from agintis.modules.agents_catalog.domain.events import (
     StepStatus,
     Token,
     TokenUsage,
+    TranscriptMessage,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "StepStatus",
     "Token",
     "TokenUsage",
+    "TranscriptMessage",
 ]

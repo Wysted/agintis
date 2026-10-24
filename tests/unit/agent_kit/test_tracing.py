@@ -17,10 +17,11 @@ from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from agintis.agent_kit.runtime import AgentContext, LangGraphRunner, TracedRunner, streamed
-from agintis.modules.agents_catalog.api import RunInput, Token
+from agintis.modules.agents_catalog.api import RunInput, SourceRef, Token, TranscriptMessage
 from agintis.platform.observability import NoTracing, OtlpConfig, TracingError
 from agintis.platform.observability.otlp import OtlpTracing, endpoint_for_log
 from agintis.shared_kernel.ids import RunId, TenantId, ThreadId
+from tests.fakes.agents import FakeRunner
 from tests.fakes.graphs import ChatState, Graph, StreamingModel, failing_graph, llm_graph
 
 ENDPOINT = "http://localhost:6006/v1/traces"
@@ -320,6 +321,14 @@ class TestPassThrough:
         assert not runner.supports_threads
         runner.ensure_available()
         assert await runner.pending_interrupts(ThreadId("t")) == ()
+
+    async def test_the_wrapper_delegates_the_transcript(self, tracing: OtlpTracing) -> None:
+        turns = (
+            TranscriptMessage("user", "hi"),
+            TranscriptMessage("assistant", "hello [1]", (SourceRef("doc-1"),)),
+        )
+        runner = TracedRunner(FakeRunner(messages=turns), tracing)
+        assert await runner.thread_messages(ThreadId("t")) == turns
 
 
 SECRET = "my-secret-passage"

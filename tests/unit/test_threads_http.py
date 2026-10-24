@@ -14,6 +14,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from agintis.agent_kit.runtime import LangGraphRunner
 from agintis.bootstrap.adapters import (
     AgentsPendingQuestions,
+    AgentsThreadTranscript,
     ConversationsThreadAccess,
     RegistryAgentDirectory,
 )
@@ -25,7 +26,9 @@ from agintis.modules.agents_catalog.api import (
     Clarification,
     RunAgent,
     RunCompleted,
+    SourceRef,
     Token,
+    TranscriptMessage,
 )
 from agintis.modules.agents_catalog.http import MAX_RESUME_DEPTH, get_services
 from agintis.modules.conversations.api import (
@@ -90,7 +93,7 @@ def _services(
         create=CreateThread(
             repo, RegistryAgentDirectory(registry), clock, threads_enabled=with_threads
         ),
-        get=GetThread(repo, AgentsPendingQuestions(registry)),
+        get=GetThread(repo, AgentsPendingQuestions(registry), AgentsThreadTranscript(registry)),
         list=ListThreads(repo, max_page_size=3),
         delete=DeleteThread(repo, state),
         acquire_lease=AcquireRunLease(repo, timedelta(minutes=5)),
@@ -242,6 +245,71 @@ async def test_other_tenants_see_404_everywhere_and_nothing_is_deleted() -> None
     assert listing.json() == {"items": [], "next_cursor": None}
     assert w.state.deleted == []
     assert (await w.threads.get.execute(TenantId("acme"), ThreadId(thread_id))).id == thread_id
+
+
+async def test_messages_are_the_transcript_with_the_sources_of_each_answer() -> None:
+    turns = (
+        TranscriptMessage("user", "what?"),
+        TranscriptMessage("assistant", "this [1]", (SourceRef("doc", "Doc", "p. 2"),)),
+        TranscriptMessage("user", "and?"),
+        TranscriptMessage("assistant", "that", (SourceRef("raw"),)),
+    )
+    async with _world(_echo_runner(messages=turns)) as w:
+        thread_id = await _create(w)
+
+        response = await w.client.get(f"/v1/threads/{thread_id}/messages", headers=ACME)
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json() == {
+        "items": [
+            {"role": "user", "text": "what?", "sources": []},
+            {
+                "role": "assistant",
+                "text": "this [1]",
+                "sources": [{"source": "doc", "title": "Doc", "locator": "p. 2"}],
+            },
+            {"role": "user", "text": "and?", "sources": []},
+            {
+                "role": "assistant",
+                "text": "that",
+                "sources": [{"source": "raw", "title": None, "locator": None}],
+            },
+        ]
+    }
+
+
+async def test_messages_of_a_new_thread_are_empty() -> None:
+    async with _world(_echo_runner()) as w:
+        thread_id = await _create(w)
+
+        response = await w.client.get(f"/v1/threads/{thread_id}/messages", headers=ACME)
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json() == {"items": []}
+
+
+async def test_messages_of_another_tenant_or_a_missing_thread_are_404() -> None:
+    async with _world(_echo_runner(messages=(TranscriptMessage("user", "secret"),))) as w:
+        thread_id = await _create(w)
+
+        other = await w.client.get(f"/v1/threads/{thread_id}/messages", headers=OTHER)
+        missing = await w.client.get("/v1/threads/nope/messages", headers=ACME)
+
+    assert other.status_code == missing.status_code == HTTPStatus.NOT_FOUND
+    assert other.json()["error"]["code"] == "thread_not_found"
+    assert "secret" not in other.text
+
+
+async def test_messages_do_not_shadow_the_run_stream_route() -> None:
+    async with _world(_echo_runner()) as w:
+        thread_id = await _create(w)
+
+        run = await w.client.post(
+            f"/v1/threads/{thread_id}/runs/stream", json={"message": "hi"}, headers=ACME
+        )
+
+    assert run.status_code == HTTPStatus.OK
+    assert "done" in _types(run)
 
 
 async def test_malformed_thread_id_is_422() -> None:

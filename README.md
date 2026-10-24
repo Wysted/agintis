@@ -73,7 +73,12 @@ curl -s localhost:8000/v1/threads -H 'Content-Type: application/json' -H 'X-Tena
   -d '{"agent_id": "fastapi-es-rag"}'             # -> {"id": "<thread_id>", ...}
 curl -N localhost:8000/v1/threads/<thread_id>/runs/stream \
   -H 'Content-Type: application/json' -H 'X-Tenant-Id: default' -d '{"message": "..."}'
+curl -s localhost:8000/v1/threads/<thread_id>/messages -H 'X-Tenant-Id: default'
 ```
+
+`GET /v1/threads/<thread_id>/messages` returns the transcript (`{"items": [{"role", "text", "sources"}]}`,
+oldest first) so a UI can rebuild the conversation; an assistant message's `[n]` markers index its `sources`. Threads answered before this
+endpoint existed return their answers with empty `sources`.
 
 With `AUTH_TENANT_RESOLVER=jwt` send `Authorization: Bearer <token>` instead of `X-Tenant-Id`. For
 local testing mint one with a throwaway keypair:

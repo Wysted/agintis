@@ -10,10 +10,12 @@ from agintis.modules.conversations.api import (
     RunLease,
     RunMode,
     Thread,
+    ThreadMessage,
     ThreadNotFoundError,
     ThreadRepository,
     ThreadStateStore,
     ThreadStatus,
+    ThreadTranscript,
 )
 from agintis.shared_kernel.criteria import Criteria, ensure_fields, tenant_scoped
 from agintis.shared_kernel.criteria.in_memory import apply
@@ -109,6 +111,16 @@ class FakePendingQuestions(PendingQuestions):
     async def for_thread(self, agent_id: str, thread_id: ThreadId) -> tuple[PendingQuestion, ...]:
         self.calls.append((agent_id, thread_id))
         return self.questions
+
+
+class FakeThreadTranscript(ThreadTranscript):
+    def __init__(self, *messages: ThreadMessage) -> None:
+        self.messages = messages
+        self.calls: list[tuple[str, ThreadId]] = []
+
+    async def for_thread(self, agent_id: str, thread_id: ThreadId) -> tuple[ThreadMessage, ...]:
+        self.calls.append((agent_id, thread_id))
+        return self.messages
 
 
 class FakeThreadStateStore(ThreadStateStore):

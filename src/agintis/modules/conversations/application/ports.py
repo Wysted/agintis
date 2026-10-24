@@ -8,7 +8,7 @@ indistinguishable from a missing one.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from agintis.modules.conversations.domain import RunLease, RunMode, Thread, ThreadStatus
 from agintis.shared_kernel.criteria import Criteria
@@ -97,6 +97,36 @@ class PendingQuestions(ABC):
 
 class NoPendingQuestions(PendingQuestions):
     async def for_thread(self, agent_id: str, thread_id: ThreadId) -> tuple[PendingQuestion, ...]:
+        return ()
+
+
+@dataclass(frozen=True, slots=True)
+class MessageSource:
+    """A source an assistant message cites (its `[n]` markers index the message's sources)."""
+
+    source: str
+    title: str | None = None
+    locator: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadMessage:
+    """One chat turn of a thread."""
+
+    role: Literal["user", "assistant"]
+    text: str
+    sources: tuple[MessageSource, ...] = ()
+
+
+class ThreadTranscript(ABC):
+    """The chat turns of a thread, read from its conversation state, oldest first."""
+
+    @abstractmethod
+    async def for_thread(self, agent_id: str, thread_id: ThreadId) -> tuple[ThreadMessage, ...]: ...
+
+
+class NoThreadTranscript(ThreadTranscript):
+    async def for_thread(self, agent_id: str, thread_id: ThreadId) -> tuple[ThreadMessage, ...]:
         return ()
 
 

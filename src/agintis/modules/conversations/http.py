@@ -1,4 +1,4 @@
-"""HTTP surface of the conversations module: tenant-scoped thread CRUD.
+"""HTTP surface of the conversations module: tenant-scoped thread CRUD and transcript.
 
 Every route resolves the tenant first and every use case filters by it, so a thread of another
 tenant answers 404 exactly like a missing one. Running a thread (streaming a message or a
@@ -7,7 +7,7 @@ resume) lives in the agents catalog (`POST /v1/threads/{id}/runs/stream`).
 
 from datetime import datetime
 from http import HTTPStatus
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -56,6 +56,24 @@ class PendingClarification(BaseModel):
 class ThreadDetailResponse(ThreadResponse):
     # The questions an interrupted thread waits for (answer them with `resume`/`resumes`).
     pending_clarifications: list[PendingClarification]
+
+
+class SourceResponse(BaseModel):
+    source: str
+    title: str | None
+    locator: str | None
+
+
+class MessageResponse(BaseModel):
+    """One chat turn; the `[n]` markers of an assistant `text` index its `sources` (1-based)."""
+
+    role: Literal["user", "assistant"]
+    text: str
+    sources: list[SourceResponse]
+
+
+class ThreadMessagesResponse(BaseModel):
+    items: list[MessageResponse]
 
 
 class ThreadListResponse(BaseModel):
@@ -127,6 +145,26 @@ async def get_thread(
             )
             for q in detail.pending
         ],
+    )
+
+
+@router.get("/threads/{thread_id}/messages")
+async def get_thread_messages(
+    thread_id: ThreadIdParam, services: Services, tenant_id: Tenant
+) -> ThreadMessagesResponse:
+    messages = await services.get.messages(tenant_id, ThreadId(thread_id))
+    return ThreadMessagesResponse(
+        items=[
+            MessageResponse(
+                role=m.role,
+                text=m.text,
+                sources=[
+                    SourceResponse(source=s.source, title=s.title, locator=s.locator)
+                    for s in m.sources
+                ],
+            )
+            for m in messages
+        ]
     )
 
 

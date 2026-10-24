@@ -9,7 +9,7 @@ from typing import Annotated, Any, TypedDict
 
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, SystemMessage
 from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
@@ -273,6 +273,30 @@ def asking_graph(
     builder = _builder()
     builder.add_node("ask", ask)
     return _compile(builder, "ask", checkpointer=checkpointer)
+
+
+class CitedState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+    cited_sources: Annotated[dict[str, list[dict[str, Any]]], operator.or_]
+
+
+def cited_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Graph:
+    """Each turn: a system note (not a chat turn), then an answer citing `doc-<n>` (the 1st
+    answer cites nothing); the answers are the ones with ids `a<n>`."""
+
+    async def answer(state: CitedState) -> dict[str, Any]:
+        n = sum(isinstance(m, AIMessage) for m in state["messages"]) + 1
+        cited = (
+            {} if n == 1 else {f"a{n}": [{"source": f"doc-{n}", "title": "Doc", "locator": None}]}
+        )
+        return {
+            "messages": [SystemMessage("internal note"), AIMessage(f"answer {n}", id=f"a{n}")],
+            "cited_sources": cited,
+        }
+
+    builder = _builder(CitedState)
+    builder.add_node("answer", answer)
+    return _compile(builder, "answer", checkpointer=checkpointer)
 
 
 class TopicState(TypedDict):
