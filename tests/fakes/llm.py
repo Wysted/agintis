@@ -8,7 +8,7 @@ tests prove that analyzer output never reaches the client as `Token` events.
 """
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
@@ -20,7 +20,7 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel, Field
 
-from agintis.platform.llm import ChatModels, ChatRole, LlmConfig
+from agintis.platform.llm import ChatModels, ChatRole, LlmConfig, LlmProfile, ModelCatalog
 
 JSON_PIECE_CHARS = 8
 
@@ -128,16 +128,23 @@ def chat_models_for(
     model: BaseChatModel | None = None,
     *,
     by_role: dict[ChatRole, BaseChatModel] | None = None,
+    profiles: Mapping[str, LlmProfile] | None = None,
 ) -> ChatModels:
-    """Real `ChatModels` (so `.get(role)` and availability behave) built over fakes."""
+    """Real `ChatModels` (so `.get(role)` and availability behave) built over fakes. `profiles`
+    adds named profiles (a spec's `models:` bindings), served by the fallback with a dummy key."""
     fallback = model if model is not None else ScriptedChatModel()
     config = LlmConfig(provider="openai", models={role: role.value for role in ChatRole})
     chosen = by_role or {}
 
     def builder(model_id: str, **_kwargs: Any) -> BaseChatModel:
-        return chosen.get(ChatRole(model_id), fallback)
+        role = ChatRole(model_id) if model_id in {r.value for r in ChatRole} else None
+        return chosen.get(role, fallback) if role else fallback
 
-    return ChatModels(config, builder=builder)
+    if profiles is None:
+        return ChatModels(config, builder=builder)
+    return ChatModels(
+        ModelCatalog(config, profiles, environ=lambda _name: "test-key", builder=builder)
+    )
 
 
 def rate_limit_error() -> Exception:
