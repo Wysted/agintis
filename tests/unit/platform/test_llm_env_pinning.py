@@ -119,3 +119,13 @@ def test_the_implicit_default_profile_keeps_the_integrations_environment_fallbac
     defaults = LlmConfig(provider="openai", models={r: "gpt-x" for r in ChatRole})
     model = ChatModels(ModelCatalog(defaults)).get(ChatRole.SYNTHESIS)
     assert model.openai_api_base == EVIL  # type: ignore[attr-defined]
+
+
+def test_a_deepseek_profile_sends_reasoning_effort_in_the_request_body() -> None:
+    pytest.importorskip("langchain_deepseek")
+    profile = LlmProfile("deepseek", "deepseek-flash", api_key_env="P_KEY", reasoning_effort="none")
+    model = _named(profile).get(ChatRole.SYNTHESIS)
+
+    payload = model._get_request_payload("hi")  # type: ignore[attr-defined]
+
+    assert payload["reasoning_effort"] == "none"

@@ -101,6 +101,7 @@ class LlmProfile:
     timeout_seconds: float | None = None
     max_retries: int | None = None
     stream_usage: bool | None = None
+    reasoning_effort: str | None = None  # openai and deepseek only (only their mappers pass it)
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,8 @@ def _openai_kwargs(cfg: LlmProfile) -> dict[str, Any]:
     kwargs = _generic_kwargs(cfg)
     if cfg.stream_usage is not None:
         kwargs["stream_usage"] = cfg.stream_usage
+    if cfg.reasoning_effort is not None:
+        kwargs["reasoning_effort"] = cfg.reasoning_effort
     return kwargs
 
 
@@ -209,6 +212,8 @@ def _deepseek_kwargs(cfg: LlmProfile) -> dict[str, Any]:
         )
     kwargs = _generic_kwargs(cfg)
     kwargs["base_url"] = cfg.base_url or DEFAULT_BASE_URLS["deepseek"]
+    if cfg.reasoning_effort is not None:
+        kwargs["reasoning_effort"] = cfg.reasoning_effort
     return kwargs
 
 

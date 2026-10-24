@@ -7,9 +7,16 @@ profiles:
     model: gpt-5.4-mini
     api_key_env: OPENAI_API_KEY      # the NAME of the variable, never the key itself
     temperature: 0
+  thinker:
+    provider: openai
+    model: gpt-6-luna
+    api_key_env: OPENAI_API_KEY
+    reasoning_effort: none           # openai and deepseek only; models accept subsets
+    # with any effort but `none`, OpenAI reasoning models reject `temperature`: leave it unset
   judge:
     provider: deepseek               # needs the `deepseek` extra; see the note below
-    model: deepseek-chat
+    model: deepseek-flash
+    reasoning_effort: none           # deepseek-flash thinks by default
     api_key_env: DEEPSEEK_API_KEY
     temperature: 0
     timeout_seconds: 60
@@ -42,7 +49,7 @@ import logging
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -65,6 +72,9 @@ MAX_PROFILES = 64
 LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 # Providers whose server may be local and keyless (a dummy key is still fine).
 KEYLESS_BASE_URL_PROVIDERS = frozenset({"ollama"})
+REASONING_EFFORT_PROVIDERS = frozenset({"openai", "deepseek"})
+# OpenAI's `reasoning.effort` values (each model accepts a subset; unset = the model's default).
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +109,17 @@ class LlmProfileSpec(BaseModel):
     timeout_seconds: float | None = Field(default=None, gt=0)
     max_retries: int | None = Field(default=None, ge=0)
     stream_usage: bool | None = None
+    reasoning_effort: ReasoningEffort | None = None
+
+    @model_validator(mode="after")
+    def _reasoning_effort_needs_a_mapper(self) -> Self:
+        if self.reasoning_effort is not None and self.provider not in REASONING_EFFORT_PROVIDERS:
+            raise ValueError(
+                "reasoning_effort is only supported by providers "
+                f"{sorted(REASONING_EFFORT_PROVIDERS)}, not {self.provider!r}: "
+                "unset it (agintis only maps it for those)"
+            )
+        return self
 
     @model_validator(mode="after")
     def _keyed_providers_name_their_key(self) -> Self:
