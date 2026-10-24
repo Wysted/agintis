@@ -201,6 +201,16 @@ All offline; use a separate model family for the judge than for the generator.
 Rules: tune prompts, retrieval and thresholds on the calibration sets only. `eval_questions` are
 held out: report on them, never tune on them.
 
+Method that worked for a change that ADDS coverage (a new document family or source). Judge it by
+NON-INFERIORITY on what already worked, not by "must improve":
+
+- Free offline stages first (retrieval and routing metrics, no LLM), live runs after.
+- At least 3 runs per arm. The tolerance floor is the run-to-run range of the baseline B
+  (mean N >= mean B - range(B)). Pre-register thresholds and the decision rule before measuring.
+- A stable loss (a question the baseline hits in >= 2/3 runs and the new arm in 0) is adjudicated
+  by reading the content before deciding.
+- Answer dumps record the token usage per model, so the cost of a run is auditable from the dump.
+
 ## Production notes
 
 - Auth: set `AUTH_TENANT_RESOLVER=jwt` (+ issuer, audience, JWKS URL). The default `header` mode
