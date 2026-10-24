@@ -12,6 +12,7 @@ profiles:
     model: gpt-6-luna
     api_key_env: OPENAI_API_KEY
     reasoning_effort: none           # openai and deepseek only; models accept subsets
+    # with any effort but `none`, OpenAI reasoning models reject `temperature`: leave it unset
   judge:
     provider: deepseek               # needs the `deepseek` extra; see the note below
     model: deepseek-flash
