@@ -57,6 +57,7 @@ from agintis.agent_kit.runtime import (
     StepLabeler,
     llm_availability,
 )
+from agintis.agent_kit.usage import UsageRecorder
 from agintis.modules.agents.rag_chat.routing import build_clarification, build_router
 from agintis.modules.agents.rag_chat.spec import AgentSpec, InvalidAgentSpecError
 from agintis.modules.knowledge.api import DEFAULT_MAX_QUERY_CHARS, RagProfileRegistry
@@ -215,6 +216,7 @@ def rag_chat_runner(
     profiles: RagProfileRegistry,
     deps: RagChatDeps,
     checkpointer: BaseCheckpointSaver[Any] | None = None,
+    usage: UsageRecorder | None = None,
 ) -> LangGraphRunner:
     """The agent as a runner; with a `checkpointer` it also supports threads (multi-turn)."""
     deps = agent_deps(spec, deps)
@@ -226,4 +228,5 @@ def rag_chat_runner(
         thread_graph=builder.compile(checkpointer=checkpointer) if checkpointer else None,
         availability=llm_availability(deps.chat_models, *roles_used(spec)),
         step_label=topic_step_label(t.name for t in spec.topics),
+        usage=usage,
     )

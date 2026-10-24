@@ -12,12 +12,14 @@ from typing import Protocol, Self, runtime_checkable
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from agintis.agent_kit.runtime import TracedRunner
+from agintis.agent_kit.usage import UsageRecorder
 from agintis.bootstrap.adapters import (
     AgentsPendingQuestions,
     AgentsThreadTranscript,
     ChainedErrorClassifier,
     CheckpointerStateStore,
     ConversationsThreadAccess,
+    PgUsageSink,
     RegistryAgentDirectory,
 )
 from agintis.bootstrap.checkpointer import build_checkpointer
@@ -120,13 +122,14 @@ from agintis.platform.llm import (
     ProviderErrorClassifier,
 )
 from agintis.platform.observability import Tracing, TracingError
+from agintis.platform.usage.repository import PgUsageRepository
 
 # HNSW graph repair/vacuum fixes landed in pgvector 0.8.3 and 0.8.4; iterative scans need 0.8.0.
 MIN_VECTOR_VERSION = (0, 8, 4)
 
 # Alembic head this build was written for. Bump together with every new migration (a unit test
 # compares it with the script directory); the startup check refuses any other schema revision.
-SCHEMA_HEAD_REVISION = "0006"
+SCHEMA_HEAD_REVISION = "0007"
 
 logger = logging.getLogger(__name__)
 
@@ -326,14 +329,22 @@ class Container:
         # Like profiles: only local config files are read; a bad spec or an unknown profile
         # aborts the boot. A duplicate agent id fails in the registry.
         agents_dir = settings.agents.dir
+        # Chat usage ledger: skipped on a read-only database (the measurement CLIs, which write
+        # their own ledger rows).
+        usage = (
+            None
+            if db.read_only
+            else UsageRecorder(PgUsageSink(PgUsageRepository(session_factory), clock))
+        )
         rag_runners = rag_chat_runners(
             load_agent_specs(agents_dir) if agents_dir else (),
             profiles,
             RagChatDeps(chat_models, retrieve_for_topic, knowledge.max_query_chars, probe_profiles),
             saver,
+            usage,
         )
         runners: tuple[AgentRunner, ...] = (
-            direct_chat_runner(chat_models, checkpointer=saver),
+            direct_chat_runner(chat_models, checkpointer=saver, usage=usage),
             *rag_runners,
         )
         if tracing.enabled:
@@ -389,6 +400,9 @@ class Container:
                 continue
             if isinstance(adapter, AsyncCloseable):
                 stack.push_async_callback(adapter.aclose)
+        # Drained after the runs end (pushed before run_agent.aclose) and before the engine closes.
+        if usage is not None:
+            stack.push_async_callback(usage.aclose)
         # Last pushed = first closed: in-flight thread releases still need the database.
         stack.push_async_callback(run_agent.aclose)
         return cls(

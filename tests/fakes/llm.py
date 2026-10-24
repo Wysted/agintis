@@ -183,3 +183,19 @@ class RaisingModel(BaseChatModel):
             raise self.error
 
         return RunnableLambda(boom)
+
+
+class NamedModel(ScriptedChatModel):
+    """A scripted model that reports its name, like a real provider client."""
+
+    model_name: str = "gpt-test"
+    cached: int | None = None
+
+    def _generate(self, *args: Any, **kwargs: Any) -> Any:
+        result = super()._generate(*args, **kwargs)
+        if self.cached is not None:
+            message = result.generations[0].message
+            assert isinstance(message, AIMessage)
+            assert message.usage_metadata is not None
+            message.usage_metadata["input_token_details"] = {"cache_read": self.cached}
+        return result

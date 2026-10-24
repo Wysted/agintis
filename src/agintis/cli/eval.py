@@ -90,6 +90,7 @@ from agintis.agent_kit.nodes import (
     select_by_evidence,
 )
 from agintis.agent_kit.runtime import QueryVectors
+from agintis.agent_kit.usage import counting_usage
 from agintis.bootstrap.container import Container, StartupError
 from agintis.bootstrap.llm import build_chat_models
 from agintis.bootstrap.settings import Settings, get_settings
@@ -101,6 +102,7 @@ from agintis.cli._common import (
     UsageError,
     git_revision,
 )
+from agintis.cli._ledger import record_usage
 from agintis.cli.eval_metrics import (
     DEFAULT_KS,
     EvalQuestion,
@@ -123,6 +125,7 @@ from agintis.modules.knowledge.api import (
     TextSearchConfigError,
 )
 from agintis.platform.llm import ChatModels, ChatRole, LlmNotConfiguredError
+from agintis.platform.usage import Purpose
 from agintis.shared_kernel.ids import TenantId
 
 BOTH = "both"
@@ -1090,15 +1093,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     for noisy in ("httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
-    try:
-        report = asyncio.run(run(args))
-    except UsageError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return EXIT_USAGE
-    except Exception as exc:  # database or embedding service down, unknown profile, bad file
-        print(f"aborted: {type(exc).__name__}: {exc}", file=sys.stderr)
-        logger.debug("abort details", exc_info=True)
-        return EXIT_ABORTED
+    with counting_usage() as usage:
+        try:
+            report = asyncio.run(run(args))
+        except UsageError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        except Exception as exc:  # database or embedding service down, unknown profile, bad file
+            print(f"aborted: {type(exc).__name__}: {exc}", file=sys.stderr)
+            logger.debug("abort details", exc_info=True)
+            return EXIT_ABORTED
+        finally:
+            # Aborted runs too: the calls already made were billed.
+            record_usage(
+                usage.usage, Purpose.EVAL, f"eval {args.questions.name}", tenant_id=args.tenant
+            )
     if args.report is not None:
         args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"\nreport written to {args.report}")

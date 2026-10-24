@@ -47,10 +47,12 @@ from agintis.platform.llm import (
     LlmProfile,
     ModelCatalog,
 )
+from agintis.platform.usage import Purpose
 from agintis.shared_kernel.ids import TenantId
-from tests.fakes.llm import ScriptedChatModel
+from tests.fakes.llm import NamedModel, ScriptedChatModel
 from tests.fakes.retrieval import FakeTopicProbe
 from tests.support.settings import make_settings
+from tests.unit.cli.conftest import FakeLedger
 
 TENANT = TenantId("t")
 
@@ -586,6 +588,21 @@ class TestMain:
         assert "out_of_scope_below" in out
         assert "Clopper-Pearson" in out
         assert json.loads(target.read_text(encoding="utf-8"))["meta"]["agent"] == "ev"
+
+    def test_the_llm_usage_of_the_run_reaches_the_ledger(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ledger: FakeLedger
+    ) -> None:
+        async def fake_run(_args: object) -> dict[str, Any]:
+            await NamedModel(replies=["x"], model_name="m-cal").ainvoke("hi")
+            return _canned_report()
+
+        monkeypatch.setattr(cli, "run", fake_run)
+        argv = self._argv(tmp_path, self._files(tmp_path, "in", "out"))
+
+        assert cli.main(argv) == EXIT_OK
+        assert [(r.model, r.purpose, r.agent_id) for r in ledger.rows] == [
+            ("m-cal", Purpose.CALIBRATE, "ev")
+        ]
 
 
 def _canned_report() -> dict[str, Any]:

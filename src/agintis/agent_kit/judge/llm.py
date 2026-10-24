@@ -46,8 +46,8 @@ from agintis.agent_kit.judge.render import (
     relevance_messages,
 )
 from agintis.agent_kit.judge.results import JudgeName, JudgeResult, Usage
-from agintis.agent_kit.judge.usage import response_usage
 from agintis.agent_kit.nodes.structured import bind_structured, invoke_structured
+from agintis.agent_kit.usage import ModelUsageCounter, response_usage
 
 JUDGE_TAG = "agintis:judge"
 JUDGE_COMPONENT = "answer_judge"
@@ -195,9 +195,12 @@ class JudgeCall:
         model: BaseChatModel,
         model_label: str,
         semaphore: asyncio.Semaphore | None = None,
+        run_usage: ModelUsageCounter | None = None,
     ) -> None:
         self._model = model
         self._label = model_label
+        # Per-model usage of the whole run (cost ledger); `UsageCounter` below is per verdict.
+        self._run_usage = run_usage
         self._semaphore = semaphore or asyncio.Semaphore(1)
         self._bound: dict[type[BaseModel], Runnable[Any, Any]] = {}
 
@@ -243,7 +246,7 @@ class JudgeCall:
     ) -> tuple[S, Usage]:
         counter = UsageCounter()
         config: RunnableConfig = {
-            "callbacks": [counter],
+            "callbacks": [counter, *([self._run_usage] if self._run_usage else [])],
             "run_name": f"judge.{judge.value}",
             "tags": [JUDGE_TAG, f"judge:{judge.value}"],
             "metadata": {

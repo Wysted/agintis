@@ -21,6 +21,7 @@ from langgraph.pregel import Pregel
 from langgraph.runtime import Runtime
 
 from agintis.agent_kit.runtime import AgentContext, LangGraphRunner, streamed
+from agintis.agent_kit.usage import UsageRecorder
 from agintis.modules.agents_catalog.api import AgentUnavailableError
 from agintis.platform.llm import ChatModels, ChatRole, LlmNotConfiguredError
 
@@ -68,6 +69,7 @@ def direct_chat_runner(
     chat_models: ChatModels,
     role: ChatRole = ChatRole.SYNTHESIS,
     checkpointer: BaseCheckpointSaver[Any] | None = None,
+    usage: UsageRecorder | None = None,
 ) -> LangGraphRunner:
     """The runner, with a pre-stream check that reports a disabled/misconfigured LLM (503).
 
@@ -95,4 +97,5 @@ def direct_chat_runner(
         builder.compile(),
         thread_graph=builder.compile(checkpointer=checkpointer) if checkpointer else None,
         availability=ensure_available,
+        usage=usage,
     )

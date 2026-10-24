@@ -10,9 +10,9 @@ from agintis.agent_kit.judge.records import (
     AnswerRecord,
     CitedSource,
     ExpectedScope,
-    ModelUsage,
     ScopeVerdict,
 )
+from agintis.agent_kit.model_usage import ModelUsage
 from agintis.agent_kit.nodes import CitationStyle, RagState, SourceLimits, select_sources
 
 _SURROGATES = re.compile("[\ud800-\udfff]")

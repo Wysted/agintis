@@ -79,6 +79,7 @@ from agintis.cli._common import (
     git_revision,
     read_jsonl,
 )
+from agintis.cli._ledger import record_usage
 from agintis.modules.agents.rag_chat import (
     AgentSpec,
     RagChatDeps,
@@ -89,6 +90,7 @@ from agintis.modules.agents.rag_chat import (
     validate_agent_specs,
 )
 from agintis.platform.llm import ChatModels, LlmError, LlmNotConfiguredError
+from agintis.platform.usage import Purpose
 from agintis.shared_kernel.ids import RunId, TenantId, new_id
 
 logger = logging.getLogger("agintis.cli.dump_answers")
@@ -477,6 +479,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_ABORTED
     finally:
         writer.close()
+        # Aborted runs too: the questions already asked were billed.
+        record_usage(
+            total_usage(c.usage for c in counters),
+            Purpose.DUMP,
+            f"dump_answers {args.questions.name}",
+            tenant_id=args.tenant,
+        )
     failed = [r.id for r in records if r.error is not None]
     refused = sum(1 for r in records if r.scope is not None and r.scope.level == "out")
     print(f"{len(records)} answers written to {args.out} ({refused} refused by the scope check)")
