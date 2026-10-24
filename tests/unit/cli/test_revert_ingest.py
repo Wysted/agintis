@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 
+from agintis.bootstrap.container import Container
 from agintis.cli import revert_ingest as cli
 from agintis.cli.local_case import source_uris
 from agintis.cli.revert_ingest import EXIT_ABORTED, EXIT_OK, EXIT_USAGE, build_parser, main
