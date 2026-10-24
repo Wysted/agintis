@@ -11,6 +11,8 @@ the `[n]` markers of the answer), the scope verdict of the clarification policy 
  "answer": "... [1] ...", "answer_sha256": "...", "scope": {"level": "in", "score": 0.7312},
  "refusal_reason": null, "standalone_query": "...", "query": "...", "attempts": 0,
  "is_clear": true, "confidence": 0.8, "citations": "inline",
+ "usage": {"gpt-5.4-mini": {"input_tokens": 900, "output_tokens": 120, "total_tokens": 1020,
+                            "cached_input_tokens": 0, "calls": 3}},
  "sources": [{"n": 1, "title": "...", "locator": "p. 3", "uri": "...", "text": "..."}],
  "agent": "spensiones-rag", "models": {"analyzer": "default (openai:gpt-5.4-mini)", ...},
  "meta": {"git": "abc1234", "tenant": "default"}, "error": null}
@@ -30,6 +32,11 @@ absent in old dumps) is how many rewrites ran this turn; neither is part of `ans
 `is_clear` and `confidence` (optional, absent in old dumps) are the analyzer's clarity verdict and
 confidence, logged for calibrating a future clarification policy; not acted on, not part of
 `answer_sha256`.
+`usage` (optional, absent in old dumps) is the LLM token usage of every call the run made for the
+row (analyzer, rewrite, merge tie-break, synthesis, structured calls), per configured model name:
+`{"<model>": {"input_tokens", "output_tokens", "total_tokens", "cached_input_tokens", "calls"}}`
+(`cached_input_tokens` is part of `input_tokens`), null when no call ran; a failed row keeps what
+was consumed before the error. Not part of `answer_sha256`.
 `citations` (`inline` | `none`; absent in old dumps = `inline`) is the agent's citation style: with
 `none` the answer carries no `[n]` by design.
 `answer_sha256` binds labels to what was judged: the sha256 of the canonical JSON of the question,
@@ -40,7 +47,7 @@ recomputed on load, so an edited record is rejected.
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, get_args
 
@@ -90,6 +97,56 @@ def _source_json(source: CitedSource) -> dict[str, Any]:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelUsage:
+    """Tokens and call count of one model; `cached_input_tokens` is the part of `input_tokens`
+    served from the provider's prompt cache."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cached_input_tokens: int = 0
+    calls: int = 0
+
+    def __add__(self, other: "ModelUsage") -> "ModelUsage":
+        return ModelUsage(
+            self.input_tokens + other.input_tokens,
+            self.output_tokens + other.output_tokens,
+            self.total_tokens + other.total_tokens,
+            self.cached_input_tokens + other.cached_input_tokens,
+            self.calls + other.calls,
+        )
+
+    def to_json(self) -> dict[str, int]:
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "cached_input_tokens": self.cached_input_tokens,
+            "calls": self.calls,
+        }
+
+
+def total_usage(rows: Iterable[Mapping[str, ModelUsage] | None]) -> dict[str, ModelUsage]:
+    """The per-model sum of the `usage` of dump records (rows without one add nothing)."""
+    totals: dict[str, ModelUsage] = {}
+    for row in rows:
+        for model, usage in (row or {}).items():
+            totals[model] = totals.get(model, ModelUsage()) + usage
+    return totals
+
+
+def format_usage(totals: Mapping[str, ModelUsage]) -> str:
+    """One summary line, e.g. `gpt-x: 10 in / 5 out / 15 total (2 cached) over 3 calls`."""
+    if not totals:
+        return "tokens: none reported"
+    return "tokens: " + "; ".join(
+        f"{model}: {u.input_tokens} in / {u.output_tokens} out / {u.total_tokens} total "
+        f"({u.cached_input_tokens} cached) over {u.calls} calls"
+        for model, u in sorted(totals.items())
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class ScopeVerdict:
     level: ScopeLevel
     score: float | None  # None: refused for lack of any evidence, or off-domain
@@ -113,6 +170,7 @@ class AnswerRecord:
     attempts: int | None = None  # rewrites that ran this turn (None: not reported)
     is_clear: bool | None = None  # the analyzer's clarity verdict (None: not reported)
     confidence: float | None = None  # the analyzer's confidence in [0, 1] (None: not reported)
+    usage: Mapping[str, ModelUsage] | None = None  # LLM tokens per model (None: no call reported)
     # the agent's `citations` (`none` = no [n] by design); no default: only `record_from_json`
     # reads a missing one (old dumps) as `inline`
     citations: CitationStyle = field(kw_only=True)
@@ -164,6 +222,9 @@ class AnswerRecord:
             "attempts": self.attempts,
             "is_clear": self.is_clear,
             "confidence": self.confidence,
+            "usage": None
+            if self.usage is None
+            else {model: u.to_json() for model, u in self.usage.items()},
             "citations": self.citations,
         }
 
@@ -200,6 +261,28 @@ def _unit(row: Mapping[str, Any], key: str) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 1:
         raise RecordFormatError(f"{key!r} must be a number in [0, 1] or null")
     return float(value)
+
+
+_USAGE_FIELDS = tuple(ModelUsage().to_json())
+
+
+def _usage(raw: object) -> dict[str, ModelUsage] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise RecordFormatError("'usage' must be an object or null")
+    usage: dict[str, ModelUsage] = {}
+    for model, counts in raw.items():
+        if not isinstance(model, str) or not isinstance(counts, dict):
+            raise RecordFormatError("'usage' must map model names to token counts")
+        # unknown extra keys are ignored: a later version may add counters
+        values = [counts.get(k) for k in _USAGE_FIELDS]
+        if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in values):
+            raise RecordFormatError(
+                f"usage of {model!r} must have non-negative integers for {_USAGE_FIELDS}"
+            )
+        usage[model] = ModelUsage(**{k: counts[k] for k in _USAGE_FIELDS})
+    return usage
 
 
 def _source(position: int, raw: object) -> CitedSource:
@@ -269,6 +352,7 @@ def record_from_json(row: object) -> AnswerRecord:
         attempts=_count(row, "attempts"),
         is_clear=_flag(row, "is_clear"),
         confidence=_unit(row, "confidence"),
+        usage=_usage(row.get("usage")),
         citations=citations,
     )
     if row.get("answer_sha256") != record.answer_sha256:

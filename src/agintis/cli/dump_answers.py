@@ -20,9 +20,10 @@ runtime; no checkpointer, one fresh conversation per question) against the confi
 READ-ONLY.
 A record holds the final answer, the clarification policy's scope verdict, the sources EXACTLY as
 the synthesis numbered and saw them (n, title, uri, chunk text) and the models behind the run as
-"profile (provider:model)" labels; see `agintis.agent_kit.judge.records` for the schema. A question
-whose run fails is written with its `error` (the failure class) and an empty answer: one failure
-never aborts the dump.
+"profile (provider:model)" labels, plus the LLM token usage of the question per model (every call
+of the run, also of a failed one up to the failure; the totals are printed at the end); see
+`agintis.agent_kit.judge.records` for the schema. A question whose run fails is written with its
+`error` (the failure class) and an empty answer: one failure never aborts the dump.
 
 The dump is written incrementally, in question order, to `OUT.partial` (mode 0600: it holds
 retrieved document text and model output) and renamed to OUT when the run finishes, so an abort
@@ -55,8 +56,11 @@ from agintis.agent_kit.judge import (
     EXPECTED_SCOPES,
     AnswerRecord,
     ExpectedScope,
+    ModelUsageCounter,
     failure_reason,
+    format_usage,
     record_from_state,
+    total_usage,
 )
 from agintis.agent_kit.nodes import CitationStyle, SourceLimits
 from agintis.agent_kit.runtime import DEFAULT_RECURSION_LIMIT, AgentContext
@@ -175,10 +179,14 @@ async def answer_question(
     models: Mapping[str, str],
     meta: Mapping[str, Any],
     citations: CitationStyle,
+    counter: ModelUsageCounter | None = None,
 ) -> AnswerRecord:
     """One fresh conversation (the history, then the question); a failure becomes a record with
-    `error` (never raises)."""
+    `error` (never raises). `counter` collects the run's LLM usage (the caller may keep it to read
+    the spend of a run that gets cancelled)."""
+    counter = counter or ModelUsageCounter()  # sees every LLM call of the run, subgraphs too
     config: RunnableConfig = {
+        "callbacks": [counter],
         "recursion_limit": DEFAULT_RECURSION_LIMIT,
         "tags": [DUMP_TAG],
         "metadata": {"agintis_component": "dump_answers", "record_id": question.id, "agent": agent},
@@ -205,6 +213,7 @@ async def answer_question(
             models=dict(models),
             meta=dict(meta),
             error=failure_reason(exc),
+            usage=counter.usage,  # what was consumed before the failure
             citations=citations,
         )
     return record_from_state(
@@ -217,6 +226,7 @@ async def answer_question(
         models=models,
         meta=meta,
         citations=citations,
+        usage=counter.usage,
     )
 
 
@@ -253,14 +263,19 @@ async def dump_answers(
     citations: CitationStyle,
     concurrency: int = DEFAULT_CONCURRENCY,
     sink: Callable[[AnswerRecord], None] | None = None,
+    counters: list[ModelUsageCounter] | None = None,
 ) -> list[AnswerRecord]:
     """Every question, at most `concurrency` at a time; records come back (and reach `sink`) in
     file order. `RepeatedFailureError` (the finished records are already in the sink) when the
-    same failure repeats."""
+    same failure repeats. Each question's usage counter is appended to `counters` when it starts,
+    so the spend of questions cancelled by an abort stays readable."""
     semaphore = asyncio.Semaphore(concurrency)
 
     async def one(question: Question) -> AnswerRecord:
         async with semaphore:
+            counter = ModelUsageCounter()
+            if counters is not None:
+                counters.append(counter)
             return await answer_question(
                 graph,
                 question,
@@ -270,6 +285,7 @@ async def dump_answers(
                 models=models,
                 meta=meta,
                 citations=citations,
+                counter=counter,
             )
 
     tasks = [asyncio.create_task(one(q)) for q in questions]
@@ -396,7 +412,9 @@ def model_labels(view: ChatModels, spec: AgentSpec) -> dict[str, str]:
     return {role.value: view.describe(role).label for role in roles_used(spec)}
 
 
-async def run(args: argparse.Namespace, writer: DumpWriter) -> list[AnswerRecord]:
+async def run(
+    args: argparse.Namespace, writer: DumpWriter, counters: list[ModelUsageCounter]
+) -> list[AnswerRecord]:
     specs = load_agent_specs(args.agents)
     spec = pick_spec(specs, args.agent)
     questions = load_questions(args.questions, args.default_scope)
@@ -433,6 +451,7 @@ async def run(args: argparse.Namespace, writer: DumpWriter) -> list[AnswerRecord
             citations=spec.citations,
             concurrency=args.concurrency,
             sink=writer.write,
+            counters=counters,
         )
 
 
@@ -440,8 +459,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     writer = DumpWriter(args.out)
+    counters: list[ModelUsageCounter] = []  # the run's, to report the spend of an abort
     try:
-        records = asyncio.run(run(args, writer))
+        records = asyncio.run(run(args, writer, counters))
         writer.commit()
     except UsageError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -449,6 +469,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (Exception, KeyboardInterrupt) as exc:  # services down, repeated failure, Ctrl-C...
         print(f"aborted: {type(exc).__name__}: {exc}", file=sys.stderr)
         logger.debug("abort details", exc_info=True)
+        if counters:
+            spend = format_usage(total_usage(c.usage for c in counters))
+            print(f"aborted run, {spend} (written rows plus questions in flight)", file=sys.stderr)
         if writer.partial.exists():
             print(f"the records already answered are kept in {writer.partial}", file=sys.stderr)
         return EXIT_ABORTED
@@ -457,6 +480,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     failed = [r.id for r in records if r.error is not None]
     refused = sum(1 for r in records if r.scope is not None and r.scope.level == "out")
     print(f"{len(records)} answers written to {args.out} ({refused} refused by the scope check)")
+    print(format_usage(total_usage(r.usage for r in records)))
     if failed:
         print(f"{len(failed)} questions failed: {', '.join(failed[:10])}", file=sys.stderr)
         return EXIT_PARTIAL
