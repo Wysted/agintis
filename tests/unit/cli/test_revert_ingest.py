@@ -1,5 +1,6 @@
 """Revert-ingest CLI: URI resolution, arguments and the dry-run/apply paths."""
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,9 @@ from agintis.cli import revert_ingest as cli
 from agintis.cli.local_case import source_uris
 from agintis.cli.revert_ingest import EXIT_ABORTED, EXIT_OK, EXIT_USAGE, build_parser, main
 from agintis.modules.knowledge.api import Document
+from agintis.shared_kernel.ids import TenantId
+from tests.support.settings import make_settings
+from tests.unit.knowledge.test_routing_and_batch import _rerouting_batch, _source
 
 
 def _case(tmp_path: Path) -> tuple[Path, Path]:
@@ -98,3 +102,80 @@ def test_an_abort_midway_reports_what_was_already_deleted(
     out = capsys.readouterr()
     assert "deleted ready" in out.out
     assert "deleted 1 documents before the abort" in out.out
+
+
+class _FakeContainer:
+    def __init__(self, batch: Any) -> None:
+        self.ingest_batch = batch
+
+    async def __aenter__(self) -> "_FakeContainer":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+
+def _seeded_container(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """The REAL `run` over a real IngestBatch and in-memory fakes (Container.build faked)."""
+    batch, documents, _ = _rerouting_batch()
+    tenant = TenantId("t")
+    asyncio.run(
+        batch.execute(tenant, [_source("manifest-url", to="old"), _source("second", to="old")])
+    )
+    monkeypatch.setattr(
+        cli.Container,
+        "build",
+        lambda *a, **k: _FakeContainer(batch),
+    )
+    monkeypatch.setattr(cli, "get_settings", make_settings)
+    return batch, documents
+
+
+def _argv(index: Path) -> list[str]:
+    return ["--profiles", "p", "--index", str(index), "--tenant", "t", "--apply"]
+
+
+def _two_entry_case(tmp_path: Path) -> Path:
+    index, samples = _case(tmp_path)
+    (samples / "fam" / "b.pdf").write_bytes(b"x")
+    manifest = json.loads((samples / "_manifest.json").read_text(encoding="utf-8"))
+    manifest.append({**manifest[0], "id": "b", "path": "/x/b.pdf", "url": "second"})
+    (samples / "_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return index
+
+
+def test_the_real_run_reports_every_deleted_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    index = _two_entry_case(tmp_path)
+    _, documents = _seeded_container(monkeypatch)
+    code = main(_argv(index))
+    out = capsys.readouterr().out
+    assert code == EXIT_OK
+    assert out.count("deleted ready") == 2
+    assert "deleted 2 documents" in out
+    assert not documents.items
+
+
+def test_the_real_run_reports_the_first_deletion_when_it_aborts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    index = _two_entry_case(tmp_path)
+    batch, documents = _seeded_container(monkeypatch)
+    real = batch._ingest.remove_rerouted
+    calls = 0
+
+    async def flaky(tenant_id: TenantId, document: Document) -> bool:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("concurrent ingest")
+        return await real(tenant_id, document)
+
+    monkeypatch.setattr(batch._ingest, "remove_rerouted", flaky)
+    code = main(_argv(index))
+    out = capsys.readouterr().out
+    assert code == EXIT_ABORTED
+    assert out.count("deleted ready") == 1
+    assert "deleted 1 documents before the abort" in out
+    assert len(documents.items) == 1

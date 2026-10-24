@@ -78,7 +78,9 @@ async def run(
         }
     )
     async with Container.build(settings, for_ingest=True) as container:
-        return await container.ingest_batch.revert(TenantId(args.tenant), uris, apply=args.apply)
+        return await container.ingest_batch.revert(
+            TenantId(args.tenant), uris, apply=args.apply
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
