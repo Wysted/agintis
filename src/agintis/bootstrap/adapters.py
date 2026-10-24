@@ -6,6 +6,7 @@ they consume, and these classes implement them on top of the OTHER module's `api
 
 from typing import Protocol
 
+from agintis.agent_kit.usage import RunUsage, UsageSink
 from agintis.modules.agents_catalog.api import (
     AgentRegistry,
     ThreadAccess,
@@ -26,9 +27,11 @@ from agintis.modules.conversations.api import (
     ThreadTranscript,
 )
 from agintis.platform.checkpointer import Checkpointer
+from agintis.platform.usage import Purpose, UsageRow
+from agintis.platform.usage.repository import PgUsageRepository
 from agintis.shared_kernel.errors import FailureInfo
 from agintis.shared_kernel.ids import TenantId, ThreadId
-from agintis.shared_kernel.ports import ErrorClassifier
+from agintis.shared_kernel.ports import Clock, ErrorClassifier
 
 _MODES = {ThreadRunMode.MESSAGE: RunMode.MESSAGE, ThreadRunMode.RESUME: RunMode.RESUME}
 _OUTCOMES = {
@@ -139,3 +142,32 @@ class ChainedErrorClassifier:
             if (failure := classifier.classify(exc)) is not None:
                 return failure
         return self._fallback.classify(exc)
+
+
+class PgUsageSink(UsageSink):
+    """`agent_kit.UsageSink` over the platform usage ledger: one `chat` row per model of the run."""
+
+    def __init__(self, repository: PgUsageRepository, clock: Clock) -> None:
+        self._repository = repository
+        self._clock = clock
+
+    async def record(self, run: RunUsage) -> None:
+        now = self._clock.now()
+        await self._repository.add_all(
+            [
+                UsageRow(
+                    run_id=run.run_id,
+                    model=model,
+                    purpose=Purpose.CHAT,
+                    created_at=now,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    cached_input_tokens=usage.cached_input_tokens,
+                    calls=usage.calls,
+                    tenant_id=run.tenant_id,
+                    agent_id=run.agent_id,
+                    thread_id=run.thread_id,
+                )
+                for model, usage in run.usage.items()
+            ]
+        )

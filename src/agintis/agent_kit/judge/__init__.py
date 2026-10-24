@@ -67,7 +67,6 @@ from agintis.agent_kit.judge.records import (
     AnswerRecord,
     CitedSource,
     ExpectedScope,
-    ModelUsage,
     RecordFormatError,
     ScopeVerdict,
     format_usage,
@@ -76,7 +75,8 @@ from agintis.agent_kit.judge.records import (
 )
 from agintis.agent_kit.judge.refusal import is_refusal, looks_like_refusal
 from agintis.agent_kit.judge.results import JudgeName, JudgeResult, JudgeStatus, Usage
-from agintis.agent_kit.judge.usage import ModelUsageCounter
+from agintis.agent_kit.model_usage import ModelUsage
+from agintis.agent_kit.usage import ModelUsageCounter
 
 __all__ = [
     "CONSENSUS_MODES",

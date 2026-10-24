@@ -111,6 +111,7 @@ estas variables se ignoran allí (son rutas/URL del host); usa las variantes `AP
 | `LLM_ANALYZER_MODEL` | unset | no | no | Modelo para el rol de analizador de consultas; requiere salida estructurada (sin definir = `LLM_MODEL`). |
 | `LLM_SYNTHESIS_MODEL` | unset | no | no | Modelo para la síntesis de respuestas (sin definir = `LLM_MODEL`). |
 | `LLM_PROFILES_FILE` | unset | no | no | YAML con perfiles LLM CON NOMBRE que una especificación de agente puede asociar por rol; también se usa para el juez. Cada perfil nombra su variable de clave (`api_key_env`). |
+| `LLM_PRICES_FILE` | unset | no | no | YAML con el catálogo de precios (USD por 1M de tokens, versionado por fecha) que usa `cli.costs`. Sin definir = el archivo incluido en el paquete (`platform/usage/prices.yaml`). Un modelo que no figura se informa como sin precio. |
 
 ## Borde HTTP (`HTTP_*`)
 

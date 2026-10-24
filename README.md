@@ -196,6 +196,7 @@ All offline; use a separate model family for the judge than for the generator.
 - Retrieval (no LLM): `uv run python -m agintis.cli.eval --profiles ... --questions case/<name>/profiles/eval_questions.jsonl [--report out.json]` (hit@k, MRR; `--route --agents DIR` adds router accuracy).
 - Answers: `cli.dump_answers --profiles ... --agents ... --agent <id> --questions <jsonl> --out answers.jsonl`, then `cli.judge --answers answers.jsonl [--report r.json]` (answer judge v12, which grades inline-citation agents exactly like v11: faithfulness, citation support, relevance, refusal correctness, script mix; citation support is not applicable to a `citations: none` agent unless it emits [n] markers anyway). Set `LLM_PROFILES_FILE` (named profiles, e.g. `case/spensiones/llm_profiles.yaml`) and `EVAL_JUDGE_PROFILE` (or `--profile`); the judge refuses to grade with the answering model unless `--allow-self-judge`.
 - Judge quality: `cli.agreement --labels <silver labels> --judgments <judge report>`.
+- Cost: every LLM call (chat runs and these CLIs) is recorded in the `llm_usage` table; `cli.costs report [--by purpose|day|tenant|thread|model] [--since DATE] [--until DATE]` prices it with `LLM_PRICES_FILE` (unpriced rows are listed apart, never as $0).
 
 Rules: tune prompts, retrieval and thresholds on the calibration sets only. `eval_questions` are
 held out: report on them, never tune on them.

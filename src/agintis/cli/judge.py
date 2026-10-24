@@ -71,6 +71,7 @@ from agintis.agent_kit.judge import (
     judge_record,
     record_from_json,
 )
+from agintis.agent_kit.usage import ModelUsageCounter
 from agintis.bootstrap.llm import bind_judge_model, build_chat_models
 from agintis.bootstrap.observability import (
     TRACING_SHUTDOWN_GRACE_SECONDS,
@@ -90,9 +91,11 @@ from agintis.cli._common import (
     read_lines,
     write_private,
 )
+from agintis.cli._ledger import record_usage
 from agintis.cli.calibrate_stats import rate_interval
 from agintis.platform.llm import ChatModels, ChatRole, LlmError
 from agintis.platform.observability import Tracing, TracingError
+from agintis.platform.usage import Purpose
 
 logger = logging.getLogger("agintis.cli.judge")
 
@@ -309,6 +312,7 @@ async def run(
     settings: Settings,
     tracing: Tracing,
     partial: PartialWriter | None = None,
+    usage: ModelUsageCounter | None = None,
 ) -> dict[str, Any]:
     names = parse_judges(args.judges)
     concurrency = settings.eval.judge_concurrency if args.concurrency is None else args.concurrency
@@ -333,7 +337,11 @@ async def run(
         for warning in check_not_self_judging(records, label):
             print(f"warning: {warning}", file=sys.stderr)
     judges = build_judges(
-        view.get(ChatRole.ANALYZER), label, names, semaphore=asyncio.Semaphore(concurrency)
+        view.get(ChatRole.ANALYZER),
+        label,
+        names,
+        semaphore=asyncio.Semaphore(concurrency),
+        run_usage=usage,
     )
     print(f"judging {len(records)} records with {label}...")
 
@@ -352,17 +360,20 @@ async def run(
         "judge_model": label,
         **judge_meta(),
         "concurrency": concurrency,
+        "usage_by_model": {m: u.to_json() for m, u in ((usage and usage.usage) or {}).items()},
         "answered_by": sorted({r.agent for r in records}),
         "answer_models": {r.agent: dict(r.models) for r in records if r.models},
     }
     return build_report(records, judgments, names, meta)
 
 
-async def amain(args: argparse.Namespace, partial: PartialWriter | None) -> dict[str, Any]:
+async def amain(
+    args: argparse.Namespace, partial: PartialWriter | None, usage: ModelUsageCounter
+) -> dict[str, Any]:
     settings = get_settings()
     tracing = build_tracing_from_settings(settings)
     try:
-        return await run(args, settings, tracing, partial)
+        return await run(args, settings, tracing, partial, usage)
     finally:
         await shutdown_tracing(
             tracing, settings.observability.otlp_timeout_seconds + TRACING_SHUTDOWN_GRACE_SECONDS
@@ -373,8 +384,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     partial = None if args.report is None else PartialWriter(args.report)
+    usage = ModelUsageCounter()
     try:
-        report = asyncio.run(amain(args, partial))
+        report = asyncio.run(amain(args, partial, usage))
     except UsageError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -387,6 +399,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:
         if partial is not None:
             partial.close()
+        # Aborted runs too: the calls already made were billed.
+        record_usage(usage.usage, Purpose.JUDGE, f"judge {args.answers.name}")
     _print(report, [JudgeName(n) for n in report["meta"]["judges"]])
     if args.report is not None:
         try:

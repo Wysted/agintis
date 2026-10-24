@@ -112,6 +112,7 @@ these are ignored there (they are host paths/URLs); use the `APP_*` variants des
 | `LLM_ANALYZER_MODEL` | unset | no | no | Model for the query analyzer role; needs structured output (unset = `LLM_MODEL`). |
 | `LLM_SYNTHESIS_MODEL` | unset | no | no | Model for answer synthesis (unset = `LLM_MODEL`). |
 | `LLM_PROFILES_FILE` | unset | no | no | YAML with NAMED LLM profiles an agent spec can bind per role; also used for the judge. Each profile names its key variable (`api_key_env`). |
+| `LLM_PRICES_FILE` | unset | no | no | YAML price catalog (USD per 1M tokens, versioned by date) used by `cli.costs`. Unset = the file shipped with the package (`platform/usage/prices.yaml`). A model it does not list is reported as unpriced. |
 
 ## HTTP edge (`HTTP_*`)
 

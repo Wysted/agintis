@@ -218,6 +218,9 @@ class LlmSettings(BaseSettings):
     # `agintis.platform.llm.profiles`. None = only the defaults above. Relative paths resolve
     # against the process cwd.
     profiles_file: Path | None = None
+    # YAML price catalog of the cost report (`agintis.platform.usage.prices`). None = the file
+    # shipped with the package.
+    prices_file: Path | None = None
 
     @field_validator(
         "provider",
@@ -231,6 +234,7 @@ class LlmSettings(BaseSettings):
         "analyzer_model",
         "synthesis_model",
         "profiles_file",
+        "prices_file",
         mode="before",
     )
     @classmethod

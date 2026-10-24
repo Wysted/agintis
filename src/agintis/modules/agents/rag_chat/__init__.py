@@ -6,6 +6,7 @@ from typing import Any
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from agintis.agent_kit.runtime import LangGraphRunner
+from agintis.agent_kit.usage import UsageRecorder
 from agintis.modules.agents.rag_chat.graph import (
     RagChatDeps,
     agent_deps,
@@ -32,11 +33,12 @@ def rag_chat_runners(
     profiles: RagProfileRegistry,
     deps: RagChatDeps,
     checkpointer: BaseCheckpointSaver[Any] | None = None,
+    usage: UsageRecorder | None = None,
 ) -> tuple[LangGraphRunner, ...]:
     """One runner per spec (validated against `profiles` first: unknown profile fails fast)."""
     specs = tuple(specs)
     validate_agent_specs(specs, profiles)
-    return tuple(rag_chat_runner(spec, profiles, deps, checkpointer) for spec in specs)
+    return tuple(rag_chat_runner(spec, profiles, deps, checkpointer, usage) for spec in specs)
 
 
 __all__ = [

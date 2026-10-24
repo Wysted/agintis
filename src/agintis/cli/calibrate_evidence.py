@@ -58,6 +58,7 @@ from agintis.agent_kit.nodes import (
     TopicEvidence,
 )
 from agintis.agent_kit.runtime import QueryVectors
+from agintis.agent_kit.usage import counting_usage
 from agintis.bootstrap.container import Container
 from agintis.bootstrap.llm import build_chat_models
 from agintis.bootstrap.settings import Settings, get_settings
@@ -69,6 +70,7 @@ from agintis.cli._common import (
     UsageError,
     git_revision,
 )
+from agintis.cli._ledger import record_usage
 from agintis.cli.calibrate_stats import (
     IN_LABEL,
     LABELS,
@@ -79,6 +81,7 @@ from agintis.cli.calibrate_stats import (
 )
 from agintis.modules.agents.rag_chat import AgentSpec, build_router, load_agent_specs
 from agintis.platform.llm import ChatModels, ChatRole, LlmNotConfiguredError
+from agintis.platform.usage import Purpose
 from agintis.platform.yaml_config import yaml_files
 from agintis.shared_kernel.ids import TenantId
 
@@ -464,15 +467,25 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
-    try:
-        report = asyncio.run(run(args))
-    except UsageError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return EXIT_USAGE
-    except Exception as exc:  # services down, unknown profile, any other failure
-        print(f"aborted: {type(exc).__name__}: {exc}", file=sys.stderr)
-        logger.debug("abort details", exc_info=True)
-        return EXIT_ABORTED
+    with counting_usage() as usage:
+        try:
+            report = asyncio.run(run(args))
+        except UsageError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+        except Exception as exc:  # services down, unknown profile, any other failure
+            print(f"aborted: {type(exc).__name__}: {exc}", file=sys.stderr)
+            logger.debug("abort details", exc_info=True)
+            return EXIT_ABORTED
+        finally:
+            # Aborted runs too: the calls already made were billed.
+            record_usage(
+                usage.usage,
+                Purpose.CALIBRATE,
+                f"calibrate_evidence {', '.join(f.name for f in args.files)}",
+                tenant_id=args.tenant,
+                agent_id=args.agent,
+            )
     _print(report)
     if args.report is not None:
         try:

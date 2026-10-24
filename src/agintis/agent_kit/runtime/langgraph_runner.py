@@ -58,6 +58,7 @@ from langgraph.types import Command, StreamMode, StreamPart
 from agintis.agent_kit.runtime.context import ContextFactory, agent_context
 from agintis.agent_kit.runtime.events import NODE_EVENT_TYPES, STREAM_TOKENS_TAG
 from agintis.agent_kit.runtime.finish_reason import finish_reason_of
+from agintis.agent_kit.usage import ModelUsageCounter, RunUsage, UsageRecorder
 from agintis.modules.agents_catalog.api import (
     DEFAULT_FINISH_REASON,
     INTERRUPTED_FINISH_REASON,
@@ -213,6 +214,7 @@ class LangGraphRunner(AgentRunner):
         recursion_limit: int = DEFAULT_RECURSION_LIMIT,
         availability: Callable[[], None] = _always_available,
         step_label: StepLabeler = no_step_label,
+        usage: UsageRecorder | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._description = description
@@ -230,6 +232,7 @@ class LangGraphRunner(AgentRunner):
         self._recursion_limit = recursion_limit
         self._availability = availability
         self._step_label = step_label
+        self._usage = usage
 
     @property
     def agent_id(self) -> str:
@@ -313,23 +316,41 @@ class LangGraphRunner(AgentRunner):
 
     async def astream(self, run_input: RunInput) -> AsyncGenerator[RunnerEvent]:
         state = _RunAccumulator()
+        config = self._config(run_input)
+        # Per-model usage for the audit ledger; callbacks reach every LLM call of the run.
+        counter = ModelUsageCounter() if self._usage else None
+        if counter:
+            config["callbacks"] = [counter]
         # Pregel.astream is typed AsyncIterator but is an async generator: closable.
         stream = cast(
             AsyncGenerator[StreamPart[Any, Any]],
             self._graph_for(run_input).astream(
                 self._input(run_input),
-                self._config(run_input),
+                config,
                 context=self._context_factory(run_input),
                 stream_mode=STREAM_MODES,
                 subgraphs=True,
                 version="v2",
             ),
         )
-        async with aclosing(stream) as parts:
-            async for part in parts:
-                for event in self._map(part, state):
-                    yield event
-        yield state.completed()
+        try:
+            async with aclosing(stream) as parts:
+                async for part in parts:
+                    for event in self._map(part, state):
+                        yield event
+            yield state.completed()
+        finally:
+            # Also on failure, cancellation or a closed stream: those calls may have been billed.
+            if self._usage and counter and (per_model := counter.usage):
+                self._usage.schedule(
+                    RunUsage(
+                        run_input.run_id,
+                        self._agent_id,
+                        run_input.tenant_id,
+                        run_input.thread_id,
+                        per_model,
+                    )
+                )
 
     def _map(self, part: StreamPart[Any, Any], state: _RunAccumulator) -> list[RunnerEvent]:
         match part["type"]:

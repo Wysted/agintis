@@ -10,9 +10,11 @@ from agintis.agent_kit.judge import JudgeName, ScopeVerdict, prompts
 from agintis.cli import judge as judge_cli
 from agintis.cli._common import EXIT_ABORTED, EXIT_OK, EXIT_USAGE, UsageError
 from agintis.cli.judge import EXIT_PARTIAL, load_dump, parse_judges
+from agintis.platform.usage import Purpose
 from tests.fakes.llm import RaisingModel, ScriptedChatModel, chat_models_for, rate_limit_error
 from tests.support.settings import make_settings
 from tests.unit.agent_kit.judge.support import checks, claims, make_record, relevance
+from tests.unit.cli.conftest import FakeLedger
 
 
 def _by_schema(schema: object, messages: list[Any]) -> object:
@@ -120,6 +122,7 @@ def test_main_judges_the_dump_and_writes_the_report(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    ledger: FakeLedger,
 ) -> None:
     _patch_model(monkeypatch, ScriptedChatModel(responder=_by_schema))
     report_path = tmp_path / "report.json"
@@ -133,6 +136,8 @@ def test_main_judges_the_dump_and_writes_the_report(
     assert report["meta"]["records"] == 4
     assert report["meta"]["judge_model"] == "default (openai:analyzer)"
     assert report["meta"]["judges"] == [j.value for j in JudgeName]
+    assert {r.purpose for r in ledger.rows} == {Purpose.JUDGE}
+    assert [r.model for r in ledger.rows] == list(report["meta"]["usage_by_model"])
     assert report["meta"]["answers_sha256"]
     assert report["meta"]["judge_version"] == prompts.JUDGE_VERSION
     assert len(report["meta"]["judge_prompts_sha256"]) == 64

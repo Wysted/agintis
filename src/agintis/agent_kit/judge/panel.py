@@ -21,6 +21,7 @@ from agintis.agent_kit.judge.llm import (
 from agintis.agent_kit.judge.ports import AnswerJudge, SignalAwareJudge
 from agintis.agent_kit.judge.records import AnswerRecord
 from agintis.agent_kit.judge.results import JudgeName, JudgeResult, JudgeStatus, Usage
+from agintis.agent_kit.usage import ModelUsageCounter
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +32,15 @@ def build_judges(
     names: Sequence[JudgeName] | None = None,
     *,
     semaphore: asyncio.Semaphore | None = None,
+    run_usage: ModelUsageCounter | None = None,
 ) -> list[AnswerJudge]:
     """The requested judges (default: all of them) in the canonical order, over one judge model.
 
-    `semaphore` bounds the model calls in flight across ALL the judges of a run.
+    `semaphore` bounds the model calls in flight across ALL the judges of a run; `run_usage`
+    collects their usage per model.
     """
     wanted = set(names or JudgeName)
-    call = JudgeCall(model, model_label, semaphore)
+    call = JudgeCall(model, model_label, semaphore, run_usage)
     available: dict[JudgeName, AnswerJudge] = {
         JudgeName.FAITHFULNESS: FaithfulnessJudge(call),
         JudgeName.CITATION_SUPPORT: CitationSupportJudge(call),

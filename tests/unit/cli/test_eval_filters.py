@@ -12,7 +12,7 @@ from langchain_core.embeddings import DeterministicFakeEmbedding
 from agintis.agent_kit.nodes import FilterClause, clauses_to_filter
 from agintis.bootstrap.container import Container
 from agintis.cli import eval as eval_cli
-from agintis.cli._common import EXIT_USAGE, UsageError
+from agintis.cli._common import EXIT_OK, EXIT_USAGE, UsageError
 from agintis.cli.eval import (
     build_analyzers,
     build_filter_extractors,
@@ -43,6 +43,7 @@ from agintis.modules.knowledge.api import (
 from agintis.modules.knowledge.application import ChunkDraft, Chunker, ParsedDocument
 from agintis.modules.knowledge.infrastructure.registry import build_retrieval_modes
 from agintis.platform.llm import ChatModels, ChatRole, LlmConfig, LlmProfile, ModelCatalog
+from agintis.platform.usage import Purpose
 from agintis.shared_kernel.criteria import Filter
 from agintis.shared_kernel.ids import TenantId
 from tests.fakes.clock import FixedClock
@@ -52,8 +53,9 @@ from tests.fakes.knowledge import (
     InMemoryDocumentRepository,
     InMemoryIngestLock,
 )
-from tests.fakes.llm import ScriptedChatModel, chat_models_for
+from tests.fakes.llm import NamedModel, ScriptedChatModel, chat_models_for
 from tests.support.settings import make_settings
+from tests.unit.cli.conftest import FakeLedger
 
 TENANT = TenantId("t")
 TEXT = "\n\n".join(f"paragraph {i}" for i in range(10))
@@ -387,6 +389,18 @@ class TestUsage:
         code = eval_cli.main(["--profiles", "p", "--questions", "q", "--analyze"])
         assert code == EXIT_USAGE
         assert "--analyze needs" in capsys.readouterr().err
+
+    def test_main_records_the_llm_usage_of_the_run_in_the_ledger(
+        self, monkeypatch: pytest.MonkeyPatch, ledger: FakeLedger
+    ) -> None:
+        async def fake_run(_args: object) -> dict[str, Any]:
+            await NamedModel(replies=["x"], model_name="m-eval").ainvoke("hi")
+            return {}
+
+        monkeypatch.setattr(eval_cli, "run", fake_run)
+
+        assert eval_cli.main(["--profiles", "p", "--questions", "q.jsonl"]) == EXIT_OK
+        assert [(r.model, r.purpose, r.calls) for r in ledger.rows] == [("m-eval", Purpose.EVAL, 1)]
 
 
 class TestRun:

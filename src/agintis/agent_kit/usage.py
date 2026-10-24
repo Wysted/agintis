@@ -1,4 +1,4 @@
-"""Token usage of the LLM calls behind one dump row, per model (the audit trail of a run's cost).
+"""Token usage of the LLM calls of one run, per model (the audit trail of a run's cost).
 
 `ModelUsageCounter` is a callback handler passed in the graph's invoke config: callbacks are
 inherited by every LLM call of the run (nodes, subgraphs, structured-output calls, streamed or
@@ -11,14 +11,23 @@ once, and a stream that fails midway counts its call with 0 tokens: totals are a
 raise it if retries or failed streams become a real cost source.
 """
 
-from typing import Any
+import asyncio
+import logging
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Any, Protocol
 from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import LLMResult
+from langchain_core.tracers.context import register_configure_hook
 
-from agintis.agent_kit.judge.records import ModelUsage
+from agintis.agent_kit.model_usage import ModelUsage
+
+logger = logging.getLogger(__name__)
 
 UNKNOWN_MODEL = "unknown"  # a client that reports no model name
 
@@ -75,3 +84,70 @@ class ModelUsageCounter(BaseCallbackHandler):
     def usage(self) -> dict[str, ModelUsage] | None:
         """Per model, or None when no LLM call ran."""
         return dict(self._usage) or None
+
+
+# Ambient counter for tools that call models from many places without passing a run config (the
+# measurement CLIs): langchain adds a handler found here to every run started in this context.
+_ambient: ContextVar[ModelUsageCounter | None] = ContextVar("agintis_usage_counter", default=None)
+register_configure_hook(_ambient, inheritable=True)
+
+
+@contextmanager
+def counting_usage() -> Iterator[ModelUsageCounter]:
+    """Counts every LLM call started inside the block (tasks created in it included)."""
+    counter = ModelUsageCounter()
+    token = _ambient.set(counter)
+    try:
+        yield counter
+    finally:
+        _ambient.reset(token)
+
+
+# A usage write is audit bookkeeping: it must never hold a run (or the shutdown) for long.
+USAGE_WRITE_TIMEOUT_SECONDS = 5.0
+
+
+@dataclass(frozen=True, slots=True)
+class RunUsage:
+    """What one chat run spent: per model, with the identity the ledger keys on."""
+
+    run_id: str
+    agent_id: str
+    tenant_id: str
+    thread_id: str | None
+    usage: Mapping[str, ModelUsage]
+
+
+class UsageSink(Protocol):
+    """Port: persists the usage of a finished run (idempotent per run and model)."""
+
+    async def record(self, run: RunUsage) -> None: ...
+
+
+class UsageRecorder:
+    """Writes to a `UsageSink` in background tasks that never delay or break the caller.
+
+    Strong references keep in-flight writes alive (a task held weakly may vanish); each write is
+    bounded by a timeout and its failure is only logged. `aclose` drains them: call it before the
+    sink's database closes.
+    """
+
+    def __init__(self, sink: UsageSink, timeout_seconds: float = USAGE_WRITE_TIMEOUT_SECONDS):
+        self._sink = sink
+        self._timeout = timeout_seconds
+        self._tasks: set[asyncio.Task[None]] = set()
+
+    def schedule(self, run: RunUsage) -> None:
+        task = asyncio.create_task(self._write(run))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _write(self, run: RunUsage) -> None:
+        try:
+            await asyncio.wait_for(self._sink.record(run), self._timeout)
+        except Exception:
+            logger.warning("Could not record the LLM usage of run %s", run.run_id, exc_info=True)
+
+    async def aclose(self) -> None:
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)

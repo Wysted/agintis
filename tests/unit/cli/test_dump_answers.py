@@ -44,8 +44,9 @@ from agintis.modules.agents.rag_chat import (
     roles_used,
 )
 from agintis.modules.knowledge.api import MetadataField, RagProfile, RagProfileRegistry
+from agintis.platform.usage import Purpose
 from agintis.shared_kernel.ids import TenantId
-from tests.fakes.llm import ScriptedChatModel, chat_models_for, rate_limit_error
+from tests.fakes.llm import NamedModel, ScriptedChatModel, chat_models_for, rate_limit_error
 from tests.fakes.retrieval import FakeRetrieval, make_hit
 from tests.unit.agents.support import (
     PROFILES as CLARIFICATION_PROFILES,
@@ -60,6 +61,7 @@ from tests.unit.agents.support import (
     multi_topic_spec,
     scoped_spec,
 )
+from tests.unit.cli.conftest import FakeLedger
 
 TENANT = TenantId("acme")
 PROFILES = RagProfileRegistry(
@@ -740,7 +742,10 @@ async def test_records_reach_the_sink_in_file_order_even_with_concurrency() -> N
 
 
 def test_main_keeps_the_partial_dump_when_the_run_aborts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    ledger: FakeLedger,
 ) -> None:
     async def partial_then_fail(
         _args: Any, writer: DumpWriter, counters: list[ModelUsageCounter]
@@ -768,6 +773,10 @@ def test_main_keeps_the_partial_dump_when_the_run_aborts(
     assert "o.jsonl.partial" in err
     assert "aborted run" in err
     assert "in-flight: 3 in / 2 out / 5 total (0 cached) over 1 calls" in err
+    # the aborted run's spend still reaches the ledger
+    assert [(r.model, r.purpose, r.input_tokens) for r in ledger.rows] == [
+        ("in-flight", Purpose.DUMP, 3)
+    ]
 
 
 def test_main_commits_and_returns_1_when_some_questions_failed(
@@ -811,22 +820,6 @@ def test_a_looser_existing_partial_is_tightened_to_0600(tmp_path: Path) -> None:
 
 
 # --- token usage per model ----------------------------------------------------------------------
-
-
-class NamedModel(ScriptedChatModel):
-    """A scripted model that reports its name, like a real provider client."""
-
-    model_name: str = "gpt-test"
-    cached: int | None = None
-
-    def _generate(self, *args: Any, **kwargs: Any) -> Any:
-        result = super()._generate(*args, **kwargs)
-        if self.cached is not None:
-            message = result.generations[0].message
-            assert isinstance(message, AIMessage)
-            assert message.usage_metadata is not None
-            message.usage_metadata["input_token_details"] = {"cache_read": self.cached}
-        return result
 
 
 async def _ask(graph: Any, **kwargs: Any) -> AnswerRecord:
