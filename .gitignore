@@ -33,4 +33,3 @@ case/*/samples/**
 
 # Answer dumps and judge reports (cli.dump_answers / cli.judge): they hold corpus text
 case/*/judge/
-case/spensiones/profiles/validation/chunks_preview.jsonl

@@ -41,8 +41,7 @@ uv run python -m agintis.cli.calibrate_evidence --profiles case/fastapi_es/profi
 
 Serve the agent with `KNOWLEDGE_PROFILES_DIR=case/fastapi_es/profiles`,
 `AGENTS_DIR=case/fastapi_es/agents` and the `LLM_*` settings. For `cli.dump_answers` / `cli.judge`
-the named LLM profiles of `case/spensiones/llm_profiles.yaml` can be reused through
-`LLM_PROFILES_FILE` (this case ships no copy).
+named LLM profiles can be set through `LLM_PROFILES_FILE` (this case ships none).
 
 ## Results (part 4.2)
 
@@ -104,21 +103,21 @@ in your own terminal (no TTY, no prompt).
 
 ### Deferred findings (not fixed in 4.2; b fixed in 4.2c)
 
-- a. Hybrid == dense here and in spensiones: `search_lexical` (`postgres/chunks.py`) uses
+- a. Hybrid == dense here: `search_lexical` (`postgres/chunks.py`) uses
   `plainto_tsquery`, an AND over the whole question, which gives 0 lexical hits on 30/30 of these
-  eval questions (and 33/40 spensiones `in_dev`), so RRF keeps the dense order. Published examples
+  eval questions, so RRF keeps the dense order. Published examples
   (Supabase, LangChain) AND too. Part 4.2b tried an OR over the question lexemes with document
   frequency <= 10/20/30% of the scope (`ts_rank_cd` normalization 1, top-N 20/50) on the retrieval
-  dev sets (`calibration/retrieval_dev.jsonl` here and in spensiones) and REJECTED it by the
-  pre-registered rule: every config lost MRR@10 against dense and the old hybrid on both sets
-  (fastapi .689-.722 vs .792; spensiones .650-.706 vs .794) and 4-6 items of hit@1. Without IDF the
+  dev sets (`calibration/retrieval_dev.jsonl`) and REJECTED it by the
+  pre-registered rule: every config lost MRR@10 against dense and the old hybrid on this set
+  (.689-.722 vs .792) and 4-6 items of hit@1. Without IDF the
   lexical leg adds noise to a strong bge-m3 ranking. Unmerged branch `part-4.2b` (109025e). Resolved by
   `bm25_hybrid` (true BM25 IDF, per-tenant index, weighted RRF), which the profiles now use: see the root README.
 - b. FIXED in 4.2c (judge v10) and 4.2d (v11): `split_sentences` split fenced code blocks per line, so
   markers stuck to fragments ("``` [1]"). v10 keeps the block whole; v11 ignores markers in code (fenced and
   inline), see Results. Accepted: `evidence_not_verbatim` on sources with inline HTML (in-fa-06, in-fa-15;
   re-diagnosed, not tables). Still open: fences indented 4+ (shortcut comment in `citations.py`).
-- c. The `REFUSAL_DEFINITION` "where it is" examples are spensiones-flavoured (index entry /
+- c. The `REFUSAL_DEFINITION` "where it is" examples are index-flavoured (index entry /
   document number); widen to "page, section" at the next judge meta-eval, not before.
 - d. Out of scope: a non-RAG agent, OCR (in-res-30), the in-cir-26 heading tweak (it would tune on a
   calibration item).
