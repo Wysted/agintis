@@ -599,3 +599,46 @@ class TestMultiProfileCase:
             "is_question": "yes",
             "keywords": ("reset", "settings"),
         }
+
+    async def test_records_report_end_to_end_ingest(self) -> None:
+        profile = load_profile(CASE_PROFILES / "records_pdf.yaml")
+        chunks = InMemoryChunkRepository()
+        ingest = IngestDocument(
+            InMemoryDocumentRepository(),
+            chunks,
+            {"simple": SimpleParser()},
+            build_chunkers(WordCounter()),
+            DeterministicFakeEmbedding(size=8),
+            FixedClock(),
+            NullIngestLock(),
+            cleaners=build_cleaners(),
+            metadata=MetadataResolver(build_extractors(), build_transforms(), FixedClock()),
+        )
+        text = (
+            "A. WIDGETS\n"
+            "1.1. Gasket sizes Ref. 12\n"
+            "1.2. Gasket wear\n"
+            "continues on the next line\n"
+            "B. GADGETS\n"
+            "2.1. Gadget setup Ref. 7\n"
+        )
+        result = await ingest.execute(
+            TenantId("tenant"),
+            profile,
+            SourceFile(
+                "https://help.example.test/reports/3.txt",
+                "text/plain",
+                text.encode(),
+                document_metadata={"id": "report-3", "number": "3", "date": "2024-05-02"},
+            ),
+        )
+        assert result.chunk_count == 2  # one chunk per `section` group
+        texts = [c.text for c, _ in chunks.items]
+        assert texts == [  # repeated group header, then the group's lines (wrap kept)
+            "WIDGETS\nA. WIDGETS\n1.1. Gasket sizes Ref. 12\n1.2. Gasket wear\n"
+            "continues on the next line",
+            "GADGETS\nB. GADGETS\n2.1. Gadget setup Ref. 7",
+        ]
+        assert "GADGETS" not in texts[0]  # the next heading starts a new chunk
+        sections = [dict(c.metadata)["section"] for c, _ in chunks.items]
+        assert sections == ["WIDGETS", "GADGETS"]

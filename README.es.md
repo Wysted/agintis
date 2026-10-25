@@ -119,7 +119,9 @@ Al hacer push de un tag `vX.Y.Z` que coincide con la versión de `pyproject.toml
 ## Agregar un caso
 
 Un caso es un directorio `case/<name>/`. `case/fastapi_es` es el ejemplo completo (corpus en Markdown,
-dos perfiles). Los PDF escaneados se pueden ingerir como fichas (parser `simple_index_card`); el OCR
+dos perfiles). Un ejemplo más grande con varios perfiles (un corpus legal/regulatorio con perfiles PDF y
+HTML, un agente multi-tema con routing por evidencia y sus notas de calibración) vive en la rama
+`examples/spensiones`. Los PDF escaneados se pueden ingerir como fichas (parser `simple_index_card`); el OCR
 es opt-in (parser `ocr_index_card`, RapidOCR en CPU, ~4 s por página) y requiere el extra `ocr`: `uv sync --extra ocr`
 más los otros extras que uses (`--all-extras` lo incluye); Docker:
 `docker compose --profile app build --build-arg UV_EXTRAS="openai otel ocr"`.

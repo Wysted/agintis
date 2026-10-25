@@ -514,6 +514,7 @@ class TestPrompts:
 
     def test_the_examples_use_a_fictitious_domain_not_the_evaluated_one(self) -> None:
         text = prompts.FAITHFULNESS_PROMPT + prompts.CITATION_SUPPORT_PROMPT
+        # Domain terms of a former example case: the judge prompts must never contain them.
         for term in ("afiliado", "AFP", "cotizaci", "pensi", "Superintendencia", "días hábiles"):
             assert term not in text
 
