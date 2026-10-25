@@ -43,8 +43,7 @@ uv run python -m agintis.cli.calibrate_evidence --profiles case/fastapi_es/profi
 
 Sirve el agente con `KNOWLEDGE_PROFILES_DIR=case/fastapi_es/profiles`,
 `AGENTS_DIR=case/fastapi_es/agents` y los ajustes `LLM_*`. Para `cli.dump_answers` / `cli.judge`
-se pueden reutilizar los perfiles LLM con nombre de `case/spensiones/llm_profiles.yaml` mediante
-`LLM_PROFILES_FILE` (este caso no incluye una copia).
+se pueden definir perfiles LLM con nombre mediante `LLM_PROFILES_FILE` (este caso no incluye ninguno).
 
 ## Resultados (parte 4.2)
 
@@ -106,21 +105,21 @@ en tu propia terminal (sin TTY, no hay prompt).
 
 ### Hallazgos diferidos (no corregidos en 4.2; b corregido en 4.2c)
 
-- a. Híbrido == denso aquí y en spensiones: `search_lexical` (`postgres/chunks.py`) usa
+- a. Híbrido == denso aquí: `search_lexical` (`postgres/chunks.py`) usa
   `plainto_tsquery`, un AND sobre toda la pregunta, que da 0 resultados léxicos en 30/30 de estas
-  preguntas de evaluación (y 33/40 de `in_dev` de spensiones), así que RRF conserva el orden denso. Los ejemplos
+  preguntas de evaluación, así que RRF conserva el orden denso. Los ejemplos
   publicados (Supabase, LangChain) también usan AND. La parte 4.2b probó un OR sobre los lexemas de la pregunta con frecuencia
   de documento <= 10/20/30% del alcance (normalización 1 de `ts_rank_cd`, top-N 20/50) en los conjuntos de
-  desarrollo de recuperación (`calibration/retrieval_dev.jsonl` aquí y en spensiones) y lo RECHAZÓ según la
-  regla preregistrada: toda configuración perdió MRR@10 frente al denso y al híbrido anterior en ambos conjuntos
-  (fastapi .689-.722 vs .792; spensiones .650-.706 vs .794) y 4-6 ítems de hit@1. Sin IDF, la
+  desarrollo de recuperación (`calibration/retrieval_dev.jsonl`) y lo RECHAZÓ según la
+  regla preregistrada: toda configuración perdió MRR@10 frente al denso y al híbrido anterior en este conjunto
+  (.689-.722 vs .792) y 4-6 ítems de hit@1. Sin IDF, la
   rama léxica agrega ruido a un ranking sólido de bge-m3. Rama sin fusionar `part-4.2b` (109025e). Lo resuelve
   `bm25_hybrid` (IDF de BM25 real, índice por tenant, RRF ponderado), que los perfiles usan ahora: ver el README raíz.
 - b. CORREGIDO en 4.2c (juez v10) y 4.2d (v11): `split_sentences` dividía los bloques de código delimitados por línea, de modo que
   los marcadores quedaban pegados a fragmentos ("``` [1]"). v10 mantiene el bloque completo; v11 ignora los marcadores en código (delimitado y
   en línea), ver Resultados. Aceptado: `evidence_not_verbatim` en fuentes con HTML en línea (in-fa-06, in-fa-15;
   rediagnosticado, no son tablas). Sigue abierto: bloques delimitados con sangría de 4+ (comentario shortcut en `citations.py`).
-- c. Los ejemplos de "dónde está" de `REFUSAL_DEFINITION` tienen sabor spensiones (entrada de índice /
+- c. Los ejemplos de "dónde está" de `REFUSAL_DEFINITION` tienen sabor de índice (entrada de índice /
   número de documento); ampliarlos a "página, sección" en la próxima meta-evaluación del juez, no antes.
 - d. Fuera de alcance: un agente no RAG, OCR (in-res-30), el ajuste del encabezado de in-cir-26 (ajustaría con
   un ítem de calibración).

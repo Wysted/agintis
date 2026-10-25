@@ -136,8 +136,8 @@ class TestIntervals:
             quantile_interval([], 0.5)
 
     def test_category_comes_from_the_id(self) -> None:
-        assert category_of("out-pens-01") == "pens"
-        assert category_of("in-ncg-20") == "ncg"
+        assert category_of("out-bill-01") == "bill"
+        assert category_of("in-ref-20") == "ref"
         assert category_of("solo") == "solo"
 
 
@@ -218,19 +218,19 @@ class TestThresholdRule:
 
     def test_strata_split_by_category_and_label(self) -> None:
         queries = [
-            _q("out-pens-01", "out", 0.7),
-            _q("out-pens-02", "out", 0.2),
+            _q("out-bill-01", "out", 0.7),
+            _q("out-bill-02", "out", 0.2),
             _q("out-gen-01", "out", 0.1),
             ScoredQuery("in-a", "q", "in", 0.9, "t", "custom"),
         ]
         report = calibrate(queries)
         strata = report["strata"]
-        assert set(strata) == {"pens", "gen", "custom"}
-        assert strata["pens"]["out"]["n"] == 2
-        assert strata["pens"]["out"]["max"] == 0.7
-        assert strata["pens"]["out"]["above_low_confidence"] == 1
+        assert set(strata) == {"bill", "gen", "custom"}
+        assert strata["bill"]["out"]["n"] == 2
+        assert strata["bill"]["out"]["max"] == 0.7
+        assert strata["bill"]["out"]["above_low_confidence"] == 1
         assert strata["gen"]["out"]["below_out_of_scope"] == 1
-        assert strata["pens"]["out"]["below_out_of_scope"] == 1  # 0.2 is the median: ON it counts
+        assert strata["bill"]["out"]["below_out_of_scope"] == 1  # 0.2 is the median: ON it counts
         assert strata["custom"]["in"]["above_low_confidence"] == 1
 
     def test_needs_both_labels_and_valid_data(self) -> None:
@@ -242,7 +242,7 @@ class TestThresholdRule:
             calibrate([_q("a", "in", float("nan")), _q("b", "out", 0.2)])
 
 
-NAMES = ["ncg", "faq"]
+NAMES = ["ref", "faq"]
 PROFILES = {n: RagProfile(f"p_{n}", 3, 100, "simple", "structured") for n in NAMES}
 
 
@@ -255,24 +255,24 @@ class TestScoring:
     async def test_score_is_the_best_raw_topic_score_without_bias(self) -> None:
         probe = FakeTopicProbe(
             {
-                "a": {"p_ncg": [0.5, 0.4], "p_faq": [0.7, 0.2]},
-                "b": {"p_ncg": [0.6]},
+                "a": {"p_ref": [0.5, 0.4], "p_faq": [0.7, 0.2]},
+                "b": {"p_ref": [0.6]},
             }
         )
         queries = [LabelledQuery("a", "a", "in"), LabelledQuery("b", "b", "out")]
         scored = await score_queries(_router(probe, bias=0.1), TENANT, queries)
-        assert [(s.id, s.score, s.topic) for s in scored] == [("a", 0.7, "faq"), ("b", 0.6, "ncg")]
+        assert [(s.id, s.score, s.topic) for s in scored] == [("a", 0.7, "faq"), ("b", 0.6, "ref")]
         assert probe.calls == 2  # one probe (one embedding) per query
 
     async def test_mean_aggregate_is_the_one_of_the_spec(self) -> None:
-        probe = FakeTopicProbe({"a": {"p_ncg": [0.6, 0.2], "p_faq": [0.3]}})
+        probe = FakeTopicProbe({"a": {"p_ref": [0.6, 0.2], "p_faq": [0.3]}})
         scored = await score_queries(
             _router(probe, aggregate="mean_top_k"), TENANT, [LabelledQuery("a", "a", "in")]
         )
         assert scored[0].score == pytest.approx(0.4)
 
     async def test_texts_replace_the_question_that_is_embedded(self) -> None:
-        probe = FakeTopicProbe({"standalone": {"p_ncg": [0.8]}})
+        probe = FakeTopicProbe({"standalone": {"p_ref": [0.8]}})
         scored = await score_queries(
             _router(probe),
             TENANT,

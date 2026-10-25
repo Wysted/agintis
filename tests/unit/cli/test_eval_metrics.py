@@ -24,11 +24,11 @@ QUESTION = EvalQuestion(
     type="exact_reference",
     profile="p",
     expected_snippet="inicio de   labores",
-    locator={"compendio_path": {"prefix": "SP/LI/TI/A"}, "numeros": "3"},
+    locator={"tree_path": {"prefix": "SP/LI/TI/A"}, "numeros": "3"},
 )
 GOLDEN = (
-    "Compendio\nEl INICIO de labores genera la afiliación",
-    {"compendio_path": "SP/LI/TI/A/CII", "numeros": ["3"]},
+    "Handbook\nEl INICIO de labores genera la alta",
+    {"tree_path": "SP/LI/TI/A/CII", "numeros": ["3"]},
 )
 
 
@@ -40,7 +40,7 @@ class TestRelevance:
     def test_snippet_and_locator_must_both_match(self) -> None:
         assert is_relevant(GOLDEN[0], GOLDEN[1], QUESTION)
         assert not is_relevant(GOLDEN[0], {**GOLDEN[1], "numeros": ["4"]}, QUESTION)
-        assert not is_relevant("Compendio\nOtro texto", GOLDEN[1], QUESTION)
+        assert not is_relevant("Handbook\nOtro texto", GOLDEN[1], QUESTION)
 
     def test_the_heading_line_is_not_searched(self) -> None:
         assert not is_relevant("inicio de labores\ncuerpo distinto", GOLDEN[1], QUESTION)
@@ -51,15 +51,15 @@ class TestRelevance:
         assert not locator_matches({"numeros": ["1"]}, "numeros", "3")
 
     def test_a_scalar_locator_is_plain_equality_whatever_the_key(self) -> None:
-        """No key is special: `compendio_path` equality is exact unless the question says prefix."""
-        assert locator_matches({"compendio_path": "SP/LI"}, "compendio_path", "SP/LI")
-        assert not locator_matches({"compendio_path": "SP/LI/TI"}, "compendio_path", "SP/LI")
+        """No key is special: `tree_path` equality is exact unless the question says prefix."""
+        assert locator_matches({"tree_path": "SP/LI"}, "tree_path", "SP/LI")
+        assert not locator_matches({"tree_path": "SP/LI/TI"}, "tree_path", "SP/LI")
 
     def test_a_prefix_locator_matches_the_start_of_the_stored_string(self) -> None:
         wanted = {"prefix": "SP/LI/TI/A"}
-        assert locator_matches({"compendio_path": "SP/LI/TI/A/CII"}, "compendio_path", wanted)
-        assert locator_matches({"compendio_path": "SP/LI/TI/A"}, "compendio_path", wanted)
-        assert not locator_matches({"compendio_path": "SP/LI/TII"}, "compendio_path", wanted)
+        assert locator_matches({"tree_path": "SP/LI/TI/A/CII"}, "tree_path", wanted)
+        assert locator_matches({"tree_path": "SP/LI/TI/A"}, "tree_path", wanted)
+        assert not locator_matches({"tree_path": "SP/LI/TII"}, "tree_path", wanted)
         assert locator_matches({"paths": ["X", "SP/LI/TI/A/C1"]}, "paths", wanted)  # any item
         assert not locator_matches({"n": 5}, "n", {"prefix": "5"})  # strings only
 

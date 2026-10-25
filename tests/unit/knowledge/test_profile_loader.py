@@ -44,9 +44,10 @@ from tests.fakes.knowledge import (
     InMemoryDocumentRepository,
     NullIngestLock,
 )
-from tests.support.postgres import PROJECT_ROOT
+from tests.support.multi_profile_case import EXAMPLE_PROFILES_DIR, PROFILES_DIR
 
-CASE_PROFILES = PROJECT_ROOT / "case" / "spensiones" / "profiles"
+CASE_PROFILES = PROFILES_DIR
+CASE_FILES = sorted(p.name for p in CASE_PROFILES.glob("*.yaml"))
 
 VALID = """\
 key: legal
@@ -347,9 +348,10 @@ class TestYamlHardening:
         (tmp_path / "gone.yaml").symlink_to(tmp_path / "missing.yaml")
         assert [p.name for p in load_profiles_dir(tmp_path)] == ["legal"]
 
-    def test_the_bundled_case_files_still_parse_with_the_strict_loader(self) -> None:
-        for name in CASE_FILES:
-            load_yaml_text((CASE_PROFILES / name).read_text(encoding="utf-8"), origin=name)
+    def test_the_bundled_case_and_example_files_still_parse_with_the_strict_loader(self) -> None:
+        for directory in (CASE_PROFILES, EXAMPLE_PROFILES_DIR):
+            for path in sorted(directory.glob("*.yaml")):
+                load_yaml_text(path.read_text(encoding="utf-8"), origin=path.name)
 
 
 class TestCleanerOrdering:
@@ -471,11 +473,8 @@ class TestValidateProfilesParams:
         assert "profile 'b'" in str(excinfo.value)
 
 
-CASE_FILES = sorted(p.name for p in CASE_PROFILES.glob("*.yaml"))
-
-
 def _case_validate(registry: RagProfileRegistry) -> None:
-    """The case profiles against the REAL registries, the way the container validates them."""
+    """Profiles against the REAL registries, the way the container validates them."""
     validate_profiles(
         registry,
         build_parsers(
@@ -495,101 +494,62 @@ def _case_validate(registry: RagProfileRegistry) -> None:
     )
 
 
-class TestSpensionesCase:
+class TestMultiProfileCase:
     def test_the_case_files_are_found(self) -> None:
-        assert "articulo_faq.yaml" in CASE_FILES
-        assert len(CASE_FILES) == 7
+        assert CASE_FILES == ["docs_html.yaml", "faq.yaml", "records_pdf.yaml"]
 
     def test_the_directory_loads_without_any_adapter(self) -> None:
         profiles = load_profiles_dir(CASE_PROFILES)
         assert [p.name for p in profiles] == [
-            "spensiones_articulo_faq",
-            "spensiones_circular",
-            "spensiones_compendio",
-            "spensiones_jurisprudencia_indice",
-            "spensiones_jurisprudencia_nota",
-            "spensiones_ncg",
-            "spensiones_resolucion",
+            "fixture_docs_html",
+            "fixture_faq",
+            "fixture_records_pdf",
         ]
 
-    def test_every_profile_validates_against_the_real_registries(self) -> None:
-        _case_validate(RagProfileRegistry(load_profiles_dir(CASE_PROFILES)))
+    @pytest.mark.parametrize("profiles_dir", [CASE_PROFILES, EXAMPLE_PROFILES_DIR])
+    def test_every_profile_validates_against_the_real_registries(self, profiles_dir: Path) -> None:
+        _case_validate(RagProfileRegistry(load_profiles_dir(profiles_dir)))
 
     def test_canonical_shape_cleaners_sources_and_types(self) -> None:
         by_name = {p.name: p for p in load_profiles_dir(CASE_PROFILES)}
-        compendio = by_name["spensiones_compendio"]
-        assert [c.key for c in compendio.cleaners] == [
-            "drop_toc_pages",
-            "strip_running_headers",
-            "dedupe_heading_echo",
+        docs = by_name["fixture_docs_html"]
+        assert [c.key for c in docs.cleaners] == [
+            "html_main_content",
+            "html_collect",
             "normalize_whitespace",
         ]
-        types = {f.name: f.type for f in compendio.metadata_fields}
-        assert types["numeros"] == "list[str]"
-        assert types["amended_by_ncg"] == "list[int]"
-        sources = {f.name: f.source for f in compendio.metadata_fields}
-        assert sources["titulo"] == "group:titulo"
-        assert sources["libro"] == "document:number"
-        assert sources["validity"] == "const:consolidated_current"
-        assert sources["compendio_path"] == "extractor:template"
+        types = {f.name: f.type for f in docs.metadata_fields}
+        assert types["keywords"] == "list[str]"
+        assert types["page_id"] == "int"
+        sources = {f.name: f.source for f in docs.metadata_fields}
+        assert sources["doc_family"] == "const:docs_html"
+        assert sources["page_id"] == "document:page_id"
+        assert sources["keywords"] == "parsed:keywords"
+        records = by_name["fixture_records_pdf"]
+        assert {f.name: f.source for f in records.metadata_fields}["section"] == (
+            "group:section_name"
+        )
 
     def test_exact_reference_profiles_retrieve_hybrid_and_the_rest_dense(self) -> None:
         modes = {p.name: p.retrieval_mode for p in load_profiles_dir(CASE_PROFILES)}
         assert modes == {
-            "spensiones_compendio": "hybrid",
-            "spensiones_ncg": "hybrid",
-            "spensiones_circular": "hybrid",
-            "spensiones_resolucion": "dense",
-            "spensiones_jurisprudencia_nota": "dense",
-            "spensiones_jurisprudencia_indice": "dense",
-            "spensiones_articulo_faq": "dense",
+            "fixture_docs_html": "hybrid",
+            "fixture_records_pdf": "hybrid",
+            "fixture_faq": "dense",
         }
 
-    def test_only_the_unvalidated_note_profile_is_a_draft(self) -> None:
+    def test_only_the_unvalidated_profile_is_a_draft(self) -> None:
         drafts = [p.name for p in load_profiles_dir(CASE_PROFILES) if p.status == "draft"]
-        assert drafts == ["spensiones_jurisprudencia_nota"]
+        assert drafts == ["fixture_faq"]
 
     def test_profile_fingerprints_are_stable_across_loads(self) -> None:
         first = {p.name: p.fingerprint for p in load_profiles_dir(CASE_PROFILES)}
         second = {p.name: p.fingerprint for p in load_profiles_dir(CASE_PROFILES)}
         assert first == second
-        assert len(set(first.values())) == 7
+        assert len(set(first.values())) == 3
 
-    async def test_articulo_faq_sample_matches_the_reference_preview(self) -> None:
-        """Reference: validation_report.md (10 blocks, keywords 2, related_aids 7).
-
-        The sample is gitignored raw data: the test only runs where it was downloaded.
-        """
-        sample = CASE_PROFILES.parent / "samples" / "articulos_html" / "cms-aid-3590.html"
-        if not sample.exists():
-            pytest.skip("case sample not downloaded")
-        profile = load_profile(CASE_PROFILES / "articulo_faq.yaml")
-        parsed = await SimpleParser().parse(
-            SourceFile(sample.name, "text/html", sample.read_bytes())
-        )
-        for spec in profile.cleaners:
-            parsed = await build_cleaners()[spec.key].clean(parsed, spec.params)
-        title = "¿Cuánto me deben descontar de mi sueldo para el seguro de cesantía?"
-        assert parsed.title == title
-        assert [s.headings[1:] for s in parsed.sections] == [
-            (),
-            ("Personas con contrato indefinido",),
-            ("Personas con contrato a plazo, obra, faena o servicio determinado",),
-        ]
-        assert all(s.headings[0] == title for s in parsed.sections)
-        text_blocks = sum(len(s.text.split("\n\n")) for s in parsed.sections)
-        assert text_blocks + 1 + 2 == 10  # + the title and the two sub-headings
-        assert dict(parsed.collected) == {
-            "keywords": ("seguro de cesantía", "remuneraciones"),
-            "related_aids": (3714, 3715, 3600, 3605, 3566, 2686, 7856),
-        }
-        flat = " ".join(s.text for s in parsed.sections)
-        assert "- Un 0,6% de su remuneración imponible" in flat
-        for gone in ("Aumentar", "Glosario", "Otras preguntas"):
-            assert gone not in flat
-
-    async def test_articulo_faq_end_to_end_ingest(self) -> None:
-        profile = load_profile(CASE_PROFILES / "articulo_faq.yaml")
+    async def test_html_page_end_to_end_ingest(self) -> None:
+        profile = load_profile(CASE_PROFILES / "docs_html.yaml")
         chunks = InMemoryChunkRepository()
         ingest = IngestDocument(
             InMemoryDocumentRepository(),
@@ -604,38 +564,81 @@ class TestSpensionesCase:
         )
         html = (
             "<html><head><title>Site</title></head><body><nav>Menu</nav>"
-            '<div id="article_i__SP_ar_articulo_titulo_1"><h1>  Como   cotizo?  </h1></div>'
-            '<div id="article_i__SP_ar_articulo_resumen_y_cuerpo_1">'
-            "<p>Debe   informar al empleador.</p>"
-            '<div style="display:none">cotizar,  afp</div></div>'
-            "<footer>Pie</footer></body></html>"
+            '<div id="page_title"><h1>  How   do I reset?  </h1></div>'
+            '<div id="page_body">'
+            "<p>Open   the settings page.</p>"
+            '<div style="display:none">reset,  settings</div></div>'
+            "<footer>Footer</footer></body></html>"
         )
         result = await ingest.execute(
             TenantId("tenant"),
             profile,
             SourceFile(
-                "https://www.spensiones.cl/portal/faq/w3-article-3590.html",
+                "https://help.example.test/pages/42.html",
                 "text/html",
                 html.encode(),
                 document_metadata={
-                    "id": "cms-aid-3590",
-                    "aid": "3590",
-                    "area": "cesantia+pensiones",
-                    "section": ("Atención de usuarios > Empleadores", "Educación > Seguro"),
-                    "title": "Como cotizo?",
+                    "id": "page-42",
+                    "page_id": "42",
+                    "area": "accounts+billing",
+                    "section": ("Support > Admins", "Learning > Billing"),
+                    "title": "How do I reset?",
                 },
             ),
         )
         assert result.chunk_count == 1
         ((stored, _),) = chunks.items
-        assert stored.text == "Como cotizo?\n\nDebe informar al empleador."
+        assert stored.text == "How do I reset?\n\nOpen the settings page."
         assert dict(stored.metadata) == {
-            "heading": "Como cotizo?",
-            "source_id": "cms-aid-3590",
-            "doc_family": "articulo_faq",
-            "aid": 3590,
-            "area": "cesantia+pensiones",
-            "audiences": ("Empleadores", "Seguro"),
+            "heading": "How do I reset?",
+            "source_id": "page-42",
+            "doc_family": "docs_html",
+            "page_id": 42,
+            "area": "accounts+billing",
+            "audiences": ("Admins", "Billing"),
             "is_question": "yes",
-            "keywords": ("cotizar", "afp"),
+            "keywords": ("reset", "settings"),
         }
+
+    async def test_records_report_end_to_end_ingest(self) -> None:
+        profile = load_profile(CASE_PROFILES / "records_pdf.yaml")
+        chunks = InMemoryChunkRepository()
+        ingest = IngestDocument(
+            InMemoryDocumentRepository(),
+            chunks,
+            {"simple": SimpleParser()},
+            build_chunkers(WordCounter()),
+            DeterministicFakeEmbedding(size=8),
+            FixedClock(),
+            NullIngestLock(),
+            cleaners=build_cleaners(),
+            metadata=MetadataResolver(build_extractors(), build_transforms(), FixedClock()),
+        )
+        text = (
+            "A. WIDGETS\n"
+            "1.1. Gasket sizes Ref. 12\n"
+            "1.2. Gasket wear\n"
+            "continues on the next line\n"
+            "B. GADGETS\n"
+            "2.1. Gadget setup Ref. 7\n"
+        )
+        result = await ingest.execute(
+            TenantId("tenant"),
+            profile,
+            SourceFile(
+                "https://help.example.test/reports/3.txt",
+                "text/plain",
+                text.encode(),
+                document_metadata={"id": "report-3", "number": "3", "date": "2024-05-02"},
+            ),
+        )
+        assert result.chunk_count == 2  # one chunk per `section` group
+        texts = [c.text for c, _ in chunks.items]
+        assert texts == [  # repeated group header, then the group's lines (wrap kept)
+            "WIDGETS\nA. WIDGETS\n1.1. Gasket sizes Ref. 12\n1.2. Gasket wear\n"
+            "continues on the next line",
+            "GADGETS\nB. GADGETS\n2.1. Gadget setup Ref. 7",
+        ]
+        assert "GADGETS" not in texts[0]  # the next heading starts a new chunk
+        sections = [dict(c.metadata)["section"] for c, _ in chunks.items]
+        assert sections == ["WIDGETS", "GADGETS"]

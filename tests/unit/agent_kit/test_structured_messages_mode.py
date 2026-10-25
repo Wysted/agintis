@@ -23,7 +23,7 @@ from tests.fakes.graphs import ChatState
 
 pytestmark = pytest.mark.filterwarnings("error")
 
-_CONTENT = json.dumps({"topic": "pensions"})
+_CONTENT = json.dumps({"topic": "billing"})
 _USAGE = {"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12}
 
 
@@ -94,7 +94,7 @@ async def test_structured_call_in_messages_mode_does_not_warn_and_counts_usage()
 
     events = [e async for e in _runner(model, parsed).astream(run_input)]
 
-    assert parsed == [_Hint(topic="pensions")]
+    assert parsed == [_Hint(topic="billing")]
     assert calls.stream_flags == [False]
     assert events[-1] == RunCompleted("stop", TokenUsage(7, 5, 12))
 

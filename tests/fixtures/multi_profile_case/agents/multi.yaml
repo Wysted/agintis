@@ -1,0 +1,43 @@
+# Synthetic fixture (neutral content): one agent with one topic per profile, evidence router.
+id: fixture-rag
+description: >-
+  Answers questions about a small synthetic help centre (pages, numbered reports and short
+  questions), citing the retrieved sources.
+router: evidence
+max_topics: 2
+evidence_aggregate: max
+evidence_margin: 0.02
+probe_k: 3
+clarification:
+  policy: evidence
+  low_confidence_below: 0.6
+  out_of_scope_below: 0.4
+  low_scope_max_topics: 3
+primary_weight: 2
+sufficiency: relevance
+min_rerank_score: 0.1
+min_sources: 1
+max_rewrites: 1
+topics:
+  - name: pages
+    description: >-
+      Help pages about using the product: step by step guides and topical overviews. Choose
+      for practical questions from a person using it. NOT for numbered reports (reports).
+    profile: fixture_docs_html
+    filters:
+      page_id: "Numeric id of the page. Only when the question names that id."
+  - name: reports
+    description: >-
+      Numbered reports and notices with their issue date, grouped by section. Choose when the
+      question names a report number or asks what a report establishes. NOT for practical
+      how-to questions (pages).
+    profile: fixture_records_pdf
+    filters:
+      report_number: "Number of the report. The same value in both bounds means exactly that one."
+      issued_date: "Issue date. Only when the question gives a date, month or year."
+  - name: faq
+    description: >-
+      Short questions and answers about common situations, one question per page. Choose for
+      quick factual questions that do not name a report.
+    profile: fixture_faq
+    filters: {}

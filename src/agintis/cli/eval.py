@@ -1,7 +1,7 @@
 """Retrieval baseline: hit@k and MRR of `RetrieveForTopic` over a questions file.
 
-    uv run python -m agintis.cli.eval --profiles case/spensiones/profiles \
-        --questions case/spensiones/profiles/eval_questions.jsonl \
+    uv run python -m agintis.cli.eval --profiles case/<name>/profiles \
+        --questions case/<name>/profiles/eval_questions.jsonl \
         --k 1,3,5,10 --mode all --report /tmp/retrieval_report.json
 
 Each question is retrieved with ITS profile and NO filters (raw retrieval: the locator is only

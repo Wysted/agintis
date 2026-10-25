@@ -1,7 +1,7 @@
 """Record chunker (key "records"): index-like documents made of one record per line.
 
 A jurisprudence index, a rates table, a glossary: lines such as
-`7.12.4. Orphan pension   Of. Ord. N° 17141 de 02-08-18` grouped under headings. Lines are
+`7.12.4. Widget gasket   Ref. 17141 of 02-08-18` grouped under headings. Lines are
 classified one at a time:
 
 * `record_pattern` match -> a record line of the current group;

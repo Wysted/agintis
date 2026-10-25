@@ -1,7 +1,7 @@
 """Batch ingest of a case's local documents.
 
-    uv run python -m agintis.cli.ingest --profiles case/spensiones/profiles \
-        --index case/spensiones/index/documents.jsonl --limit 10
+    uv run python -m agintis.cli.ingest --profiles case/<name>/profiles \
+        --index case/<name>/index/documents.jsonl --limit 10
 
 Reads the index rows, keeps those whose file is already on disk (`<samples>/_manifest.json`;
 nothing is downloaded), routes each to a profile from the profiles' `routing` rules and ingests

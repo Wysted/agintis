@@ -502,9 +502,9 @@ class TestDocumentRepository:
     ) -> None:
         original = _doc(A, "da", title="GetFile")
         await repos.documents.save(original)
-        assert await repos.documents.update_title(A, DocumentId("da"), "NCG 372") is True
+        assert await repos.documents.update_title(A, DocumentId("da"), "REF 372") is True
         stored = await repos.documents.get(A, DocumentId("da"))
-        assert stored == replace(original, title="NCG 372")
+        assert stored == replace(original, title="REF 372")
 
     async def test_update_title_is_tenant_scoped_and_ready_only(self, repos: Repos) -> None:
         await repos.documents.save(_doc(A, "da", title="orig"))

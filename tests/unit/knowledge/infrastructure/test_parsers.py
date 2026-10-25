@@ -404,13 +404,13 @@ class TestTitleFromUri:
     @pytest.mark.parametrize(
         ("uri", "title"),
         [
-            ("https://h/apps/GetFile.php?id=003&namefile=NCG-SP/NP0000372.pdf", "NP0000372"),
+            ("https://h/apps/GetFile.php?id=003&namefile=REF-X/NP0000372.pdf", "NP0000372"),
             ("https://h/GetFile.php?namefile=a%2Fb%2FCAFP2425.pdf", "CAFP2425"),
             ("https://h/GetFile.php?file=C:\\docs\\norm.docx", "norm"),
             ("https://h/docs/manual.pdf", "manual"),
             ("https://h/docs/manual.pdf?download=1&v=2", "manual"),
             ("https://h/docs/manual.pdf?ref=other.pdf", "manual"),
-            ("https://h/apps/GetFile.php?ref=x&namefile=NCG-SP/N0372.pdf", "N0372"),
+            ("https://h/apps/GetFile.php?ref=x&namefile=REF-X/N0372.pdf", "N0372"),
             ("https://h/GetFile.php?id=003", "GetFile"),
             ("https://h/GetFile.php?next=https://x.cl/", "GetFile"),
             ("https://h/GetFile.php?note=hello+world.+Bye", "GetFile"),

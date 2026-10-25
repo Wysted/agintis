@@ -21,7 +21,7 @@ with retrieval metrics and an answer judge.
 | `modules/agents` | Concrete agents: `rag_chat` (built from YAML specs) and `direct_chat` |
 | `agent_kit` | Generic LangGraph nodes shared by agents |
 | `platform` | Cross-cutting: db, http, auth (header / JWT), llm, observability |
-| `case/` | Worked examples: `fastapi_es` (small), `spensiones` (large) |
+| `case/` | Worked examples: `fastapi_es` (the worked example) |
 
 ## Quickstart (Docker Compose)
 
@@ -118,9 +118,10 @@ Pushing a tag `vX.Y.Z` that matches the `pyproject.toml` version runs
 ## Add a case
 
 A case is a directory `case/<name>/`. `case/fastapi_es` is the worked example (Markdown corpus,
-two profiles); `case/spensiones` is the larger one (PDF/HTML, seven profiles, metadata filters).
-Its scanned resolutions are ingested as index cards; OCR for scanned PDFs is opt-in (parser
-`ocr_index_card`, RapidOCR on CPU, ~4 s per page) and needs the `ocr` extra: `uv sync --extra ocr`
+two profiles). A larger multi-profile example (a legal/regulatory corpus with PDF and HTML profiles,
+an evidence-routed multi-topic agent and its calibration notes) lives in the branch
+`examples/spensiones`. Scanned PDFs can be ingested as index cards (parser `simple_index_card`); OCR is
+opt-in (parser `ocr_index_card`, RapidOCR on CPU, ~4 s per page) and needs the `ocr` extra: `uv sync --extra ocr`
 plus the other extras you use (`--all-extras` includes it); Docker:
 `docker compose --profile app build --build-arg UV_EXTRAS="openai otel ocr"`.
 
@@ -135,12 +136,9 @@ plus the other extras you use (`--all-extras` includes it); Docker:
    warning). Each tenant has its own BM25 index, so term statistics (IDF) never mix tenants;
    ingest creates it for a new tenant when a profile uses `bm25_hybrid`, which needs the app's
    database role to own `chunks` (otherwise ingest logs a warning). The template keeps it
-   opt-in; the fastapi_es case uses it and spensiones does not. Measured as MRR@10 vs dense,
-   each case in its own tenant: fastapi_es .7917 -> .7944, adopted; on spensiones a fresh dev
-   set gained (.7304 -> .7694) but the older one dropped past the -0.01 limit
-   (.7937 -> .7821), not adopted. Earlier runs had both cases sharing one tenant: they passed
-   with per-tenant indexes (spensiones .7879, fastapi_es .7861), and with one global index the
-   older spensiones set had dropped (.7780).
+   opt-in (the fastapi_es case uses it). To decide whether a mode helps your corpus, compare it
+   with `cli.eval --mode dense|hybrid` on a held-out question set, each case in its own tenant,
+   and adopt it only if the gain holds past your pre-registered limit.
 2. Corpus: `index/documents.jsonl` (one row per document, titles from `document_metadata.title`
    or the parser's H1) and the files under `samples/` with `samples/_manifest.json`. Write a
    `fetch/` script that produces both. After a re-fetch that changed or dropped sources, ingest
@@ -148,7 +146,7 @@ plus the other extras you use (`--all-extras` includes it); Docker:
    `cli.indexes --profiles case/<name>/profiles --apply` for the fields flagged `indexed`.
    After a bulk ingest or revert (thousands of chunks
    inserted and deleted), pgvector HNSW results are no longer identical to before, even after
-   `VACUUM` (measured: routed MRR moved +-0.005 with the same routing). Re-measure your baselines
+   `VACUUM` (the same routing can shift the metrics slightly). Re-measure your baselines
    after bulk changes, or `REINDEX` the HNSW index after a bulk revert if exact reproducibility
    matters.
    To undo an ingest batch auditably, `uv run python -m agintis.cli.revert_ingest --profiles
@@ -188,7 +186,9 @@ matter:
 - `sufficiency`, `min_sources`, `max_rewrites`: when the retrieved evidence is enough, otherwise
   rewrite and retry.
 - `prompts`: per-node system prompt overrides (analyze, extract_filters, synthesize, route,
-  rewrite); defaults are generic English.
+  rewrite); the built-in agent prompts are generic English. The answer-quality judge prompts and
+  heuristics (refusal, abbreviations) are Spanish defaults calibrated on Spanish answers; an agent
+  overrides the agent prompts in its spec and a case with another language must re-check the judge.
 - `citations: inline | none` (default `inline`): `inline` asks for `[n]` markers in the answer;
   `none` keeps every grounding rule (answer only from the sources, say what is missing, "I do
   not know" otherwise) without markers, e.g. for a customer-service agent. It picks the default
@@ -211,7 +211,7 @@ runner in `bootstrap/container.py` next to `direct_chat_runner(...)`. The import
 All offline; use a separate model family for the judge than for the generator.
 
 - Retrieval (no LLM): `uv run python -m agintis.cli.eval --profiles ... --questions case/<name>/profiles/eval_questions.jsonl [--report out.json]` (hit@k, MRR; `--route --agents DIR` adds router accuracy).
-- Answers: `cli.dump_answers --profiles ... --agents ... --agent <id> --questions <jsonl> --out answers.jsonl`, then `cli.judge --answers answers.jsonl [--report r.json]` (answer judge v12, which grades inline-citation agents exactly like v11: faithfulness, citation support, relevance, refusal correctness, script mix; citation support is not applicable to a `citations: none` agent unless it emits [n] markers anyway). Set `LLM_PROFILES_FILE` (named profiles, e.g. `case/spensiones/llm_profiles.yaml`) and `EVAL_JUDGE_PROFILE` (or `--profile`); the judge refuses to grade with the answering model unless `--allow-self-judge`.
+- Answers: `cli.dump_answers --profiles ... --agents ... --agent <id> --questions <jsonl> --out answers.jsonl`, then `cli.judge --answers answers.jsonl [--report r.json]` (answer judge v12, which grades inline-citation agents exactly like v11: faithfulness, citation support, relevance, refusal correctness, script mix; citation support is not applicable to a `citations: none` agent unless it emits [n] markers anyway). Set `LLM_PROFILES_FILE` (named profiles, see docs/configuration.md) and `EVAL_JUDGE_PROFILE` (or `--profile`); the judge refuses to grade with the answering model unless `--allow-self-judge`.
 - Judge quality: `cli.agreement --labels <silver labels> --judgments <judge report>`.
 - Cost: every LLM call (chat runs and these CLIs) is recorded in the `llm_usage` table; `cli.costs report [--by purpose|day|tenant|thread|model] [--since DATE] [--until DATE]` prices it with `LLM_PRICES_FILE` (unpriced rows are listed apart, never as $0).
 
@@ -247,12 +247,8 @@ NON-INFERIORITY on what already worked, not by "must improve":
 
 agintis is released under the [MIT License](LICENSE).
 
-The example cases do not redistribute their corpora; each fetcher downloads them:
+The example case does not redistribute its corpus; its fetcher downloads it:
 
 - `case/fastapi_es`: the Spanish documentation of [FastAPI](https://github.com/fastapi/fastapi),
   MIT License, Copyright (c) 2018 Sebastián Ramírez (copy in `case/fastapi_es/samples/LICENSE`).
-- `case/spensiones`: public regulation published by the Chilean Superintendencia de Pensiones
-  (spensiones.cl). The documents are not versioned: only the crawler, URLs, document metadata and
-  evaluation files (questions, labels and judge examples quoting short excerpts).
-  Respect the site's terms and `robots.txt`, and crawl politely if you run the crawler.
 - The bge-m3 tokenizer (MIT) is downloaded when the image is built.

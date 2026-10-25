@@ -1,7 +1,7 @@
 """Sync the per-field metadata indexes of the loaded profiles with the database.
 
-    uv run python -m agintis.cli.indexes --profiles case/spensiones/profiles            # plan
-    uv run python -m agintis.cli.indexes --profiles case/spensiones/profiles --apply    # create
+    uv run python -m agintis.cli.indexes --profiles case/<name>/profiles            # plan
+    uv run python -m agintis.cli.indexes --profiles case/<name>/profiles --apply    # create
 
 Reads the profiles, computes the expression index every `indexed` scalar field needs (derived from
 the SQL the filters emit, so the planner can use it), diffs it against the database and prints

@@ -20,7 +20,7 @@ con métricas de recuperación y un juez de respuestas.
 | `modules/agents` | Agentes concretos: `rag_chat` (construido desde especificaciones YAML) y `direct_chat` |
 | `agent_kit` | Nodos genéricos de LangGraph compartidos por los agentes |
 | `platform` | Transversal: db, http, auth (header / JWT), llm, observabilidad |
-| `case/` | Ejemplos completos: `fastapi_es` (pequeño), `spensiones` (grande) |
+| `case/` | Ejemplos completos: `fastapi_es` (el ejemplo completo) |
 
 ## Inicio rápido (Docker Compose)
 
@@ -119,9 +119,10 @@ Al hacer push de un tag `vX.Y.Z` que coincide con la versión de `pyproject.toml
 ## Agregar un caso
 
 Un caso es un directorio `case/<name>/`. `case/fastapi_es` es el ejemplo completo (corpus en Markdown,
-dos perfiles); `case/spensiones` es el más grande (PDF/HTML, siete perfiles, filtros de metadatos).
-Sus resoluciones escaneadas se ingieren como fichas; el OCR de PDF escaneados es opt-in (parser
-`ocr_index_card`, RapidOCR en CPU, ~4 s por página) y requiere el extra `ocr`: `uv sync --extra ocr`
+dos perfiles). Un ejemplo más grande con varios perfiles (un corpus legal/regulatorio con perfiles PDF y
+HTML, un agente multi-tema con routing por evidencia y sus notas de calibración) vive en la rama
+`examples/spensiones`. Los PDF escaneados se pueden ingerir como fichas (parser `simple_index_card`); el OCR
+es opt-in (parser `ocr_index_card`, RapidOCR en CPU, ~4 s por página) y requiere el extra `ocr`: `uv sync --extra ocr`
 más los otros extras que uses (`--all-extras` lo incluye); Docker:
 `docker compose --profile app build --build-arg UV_EXTRAS="openai otel ocr"`.
 
@@ -136,12 +137,9 @@ más los otros extras que uses (`--all-extras` lo incluye); Docker:
    el log). Cada tenant tiene su propio índice BM25, así que las estadísticas de términos (IDF) nunca
    mezclan tenants; la ingesta lo crea para un tenant nuevo cuando un perfil usa `bm25_hybrid`, lo que
    requiere que el rol de base de datos de la app sea dueño de `chunks` (si no, la ingesta registra un
-   warning). La plantilla lo mantiene opcional; el caso fastapi_es lo usa y spensiones no. Medido como
-   MRR@10 frente a dense, cada caso en su propio tenant: fastapi_es .7917 -> .7944, adoptado; en
-   spensiones un set de desarrollo nuevo mejoró (.7304 -> .7694) pero el anterior cayó más allá del
-   límite de -0.01 (.7937 -> .7821), no adoptado. Corridas anteriores tenían ambos casos en un mismo
-   tenant: pasaron con índices por tenant (spensiones .7879, fastapi_es .7861), y con un único índice
-   global el set anterior de spensiones había caído (.7780).
+   warning). La plantilla lo mantiene opcional (el caso fastapi_es lo usa). Para decidir si un modo ayuda a tu
+   corpus, compáralo con `cli.eval --mode dense|hybrid` sobre un set de preguntas apartado, cada caso
+   en su propio tenant, y adóptalo solo si la mejora supera el límite preregistrado.
 2. Corpus: `index/documents.jsonl` (una fila por documento, títulos desde `document_metadata.title`
    o el H1 del parser) y los archivos bajo `samples/` con `samples/_manifest.json`. Escribe un
    script en `fetch/` que produzca ambos. Tras una nueva descarga que cambió o eliminó fuentes, ingesta
@@ -149,8 +147,7 @@ más los otros extras que uses (`--all-extras` lo incluye); Docker:
    `cli.indexes --profiles case/<name>/profiles --apply` para los campos marcados `indexed`.
    Tras una ingesta o reversión masiva (miles de
    chunks insertados y borrados), los resultados de HNSW de pgvector ya no son idénticos a los de
-   antes, ni siquiera tras `VACUUM` (medido: el MRR con routing se movió +-0.005 con el mismo
-   routing). Vuelve a medir tus baselines después de cambios masivos, o haz `REINDEX` del índice HNSW
+   antes, ni siquiera tras `VACUUM` (el mismo routing puede mover un poco las métricas). Vuelve a medir tus baselines después de cambios masivos, o haz `REINDEX` del índice HNSW
    tras una reversión masiva si necesitas reproducibilidad exacta.
    Para deshacer un lote de ingesta de forma auditable, `uv run python -m agintis.cli.revert_ingest
    --profiles ... --index <el mismo índice> --tenant <id>` lista (simulación, con conteos) los
@@ -190,7 +187,10 @@ importan:
 - `sufficiency`, `min_sources`, `max_rewrites`: cuándo la evidencia recuperada es suficiente; si no,
   se reescribe y se reintenta.
 - `prompts`: sobrescrituras del system prompt por nodo (analyze, extract_filters, synthesize, route,
-  rewrite); los valores por defecto son genéricos en inglés.
+  rewrite); los prompts integrados del agente son genéricos en inglés. Los prompts y heurísticas
+  del juez de calidad (rechazo, abreviaturas) son valores por defecto en español calibrados con
+  respuestas en español; un agente sobrescribe los prompts del agente en su spec y un caso en otro
+  idioma debe revisar el juez.
 - `citations: inline | none` (por defecto `inline`): `inline` pide marcadores `[n]` en la respuesta;
   `none` mantiene todas las reglas de anclaje (responder solo desde las fuentes, decir qué falta y
   "no lo sé" en otro caso) sin marcadores, p. ej. para un agente de atención al cliente. Elige el
@@ -214,7 +214,7 @@ negocio por su `api.py` y a los nodos reutilizables por `agent_kit`.
 Todo es offline; usa para el juez una familia de modelos distinta a la del generador.
 
 - Recuperación (sin LLM): `uv run python -m agintis.cli.eval --profiles ... --questions case/<name>/profiles/eval_questions.jsonl [--report out.json]` (hit@k, MRR; `--route --agents DIR` agrega la precisión del router).
-- Respuestas: `cli.dump_answers --profiles ... --agents ... --agent <id> --questions <jsonl> --out answers.jsonl`, luego `cli.judge --answers answers.jsonl [--report r.json]` (juez de respuestas v12, que califica a los agentes con citas inline igual que v11: fidelidad, soporte de citas, relevancia, corrección del rechazo, mezcla de escrituras; el soporte de citas no aplica a un agente con `citations: none` salvo que emita marcadores [n] de todos modos). Define `LLM_PROFILES_FILE` (perfiles con nombre, p. ej. `case/spensiones/llm_profiles.yaml`) y `EVAL_JUDGE_PROFILE` (o `--profile`); el juez se niega a calificar con el modelo que respondió salvo que uses `--allow-self-judge`.
+- Respuestas: `cli.dump_answers --profiles ... --agents ... --agent <id> --questions <jsonl> --out answers.jsonl`, luego `cli.judge --answers answers.jsonl [--report r.json]` (juez de respuestas v12, que califica a los agentes con citas inline igual que v11: fidelidad, soporte de citas, relevancia, corrección del rechazo, mezcla de escrituras; el soporte de citas no aplica a un agente con `citations: none` salvo que emita marcadores [n] de todos modos). Define `LLM_PROFILES_FILE` (perfiles con nombre, ver docs/configuration.es.md) y `EVAL_JUDGE_PROFILE` (o `--profile`); el juez se niega a calificar con el modelo que respondió salvo que uses `--allow-self-judge`.
 - Calidad del juez: `cli.agreement --labels <silver labels> --judgments <judge report>`.
 - Costo: cada llamada al LLM (corridas de chat y estos CLIs) queda en la tabla `llm_usage`; `cli.costs report [--by purpose|day|tenant|thread|model] [--since DATE] [--until DATE]` la valoriza con `LLM_PRICES_FILE` (las filas sin precio se listan aparte, nunca como $0).
 
@@ -250,12 +250,8 @@ Júzgalo por NO INFERIORIDAD sobre lo que ya funcionaba, no por "debe mejorar":
 
 agintis se publica bajo la [Licencia MIT](LICENSE).
 
-Los casos de ejemplo no redistribuyen sus corpus; cada fetcher los descarga:
+El caso de ejemplo no redistribuye su corpus; su fetcher lo descarga:
 
 - `case/fastapi_es`: la documentación en español de [FastAPI](https://github.com/fastapi/fastapi),
   Licencia MIT, Copyright (c) 2018 Sebastián Ramírez (copia en `case/fastapi_es/samples/LICENSE`).
-- `case/spensiones`: normativa pública publicada por la Superintendencia de Pensiones de Chile
-  (spensiones.cl). Los documentos no están versionados: solo el crawler, las URL, los metadatos de los documentos y
-  los archivos de evaluación (preguntas, etiquetas y ejemplos del juez que citan extractos breves).
-  Respeta los términos del sitio y su `robots.txt`, y haz el crawling con cortesía si ejecutas el crawler.
 - El tokenizer de bge-m3 (MIT) se descarga al construir la imagen.

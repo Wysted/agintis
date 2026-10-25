@@ -21,7 +21,7 @@ description: >-
   paso y guías de conceptos), citando las fuentes recuperadas.
 # Evidence router (no LLM): embeds the question once and probes every topic's profile with a
 # dense search; the best topic is always searched, the other one only when its score is within
-# `evidence_margin` of the best. Same pre-registered defaults as the spensiones case; any change
+# `evidence_margin` of the best. Pre-registered defaults; any change
 # or per-topic `evidence_bias` must be calibrated on a separate dev set, never on the eval set.
 router: evidence
 max_topics: 2

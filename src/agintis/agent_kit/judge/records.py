@@ -14,7 +14,7 @@ the `[n]` markers of the answer), the scope verdict of the clarification policy 
  "usage": {"gpt-5.4-mini": {"input_tokens": 900, "output_tokens": 120, "total_tokens": 1020,
                             "cached_input_tokens": 0, "calls": 3}},
  "sources": [{"n": 1, "title": "...", "locator": "p. 3", "uri": "...", "text": "..."}],
- "agent": "spensiones-rag", "models": {"analyzer": "default (openai:gpt-5.4-mini)", ...},
+ "agent": "my-rag", "models": {"analyzer": "default (openai:gpt-5.4-mini)", ...},
  "meta": {"git": "abc1234", "tenant": "default"}, "error": null}
 ```
 

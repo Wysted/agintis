@@ -207,7 +207,7 @@ class LlmSettings(BaseSettings):
     # so OpenAI-compatible servers need LLM_STREAM_USAGE=true to report usage.
     stream_usage: bool | None = None
     # openai only; "none" = reasoning off (Luna's API default, medium, bills reasoning tokens and
-    # failed the spensiones floors). Empty = the API default. The default is dropped for other
+    # failed the quality floors). Empty = the API default. The default is dropped for other
     # providers; an explicit value with one is refused below.
     reasoning_effort: ReasoningEffort | None = "none"
     router_model: str | None = Field(default=None, min_length=1)

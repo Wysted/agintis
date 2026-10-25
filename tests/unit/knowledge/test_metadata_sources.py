@@ -129,7 +129,7 @@ class TestTransforms:
             MetadataField(
                 "system",
                 source="document:area",
-                transforms=(TransformSpec("value_map", {"map": {"pensiones": "SP"}}),),
+                transforms=(TransformSpec("value_map", {"map": {"billing": "BL"}}),),
             ),
             MetadataField(
                 "date",
@@ -145,10 +145,10 @@ class TestTransforms:
             ),
         )
         parsed = _parsed(
-            document_metadata={"area": "pensiones", "date": "2021", "section": ("A > B", "C > B")}
+            document_metadata={"area": "billing", "date": "2021", "section": ("A > B", "C > B")}
         )
         (out,) = _resolver().resolve(profile, parsed, [_draft()])
-        assert out.metadata["system"] == "SP"
+        assert out.metadata["system"] == "BL"
         assert out.metadata["date"] == "2021-01-01"
         assert out.metadata["audiences"] == ("B",)
 

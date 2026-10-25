@@ -250,23 +250,23 @@ TYPED = RagProfile(
     "structured",
     metadata_fields=(
         MetadataField("kind", "str", filterable=True),
-        MetadataField("ncg", "int", filterable=True, indexed=True),
+        MetadataField("ref", "int", filterable=True, indexed=True),
         MetadataField("issued", "date", filterable=True, indexed=True),
         MetadataField("refs", "list[int]", filterable=True),
         MetadataField("tags", "list[str]", filterable=True),
     ),
 )
 KIND: Any = {"field": "kind", "op": "eq", "value": "memo"}
-NCG: Any = {"field": "ncg", "op": "eq", "value": 372}
+REF: Any = {"field": "ref", "op": "eq", "value": 372}
 TAG: Any = {"field": "tags", "op": "eq", "value": "x"}
 
 
 def _answering_at(*levels: str) -> Any:
     """Hits only for the calls whose filter touches exactly the fields of one of `levels`:
-    `full` = kind+ncg+tags, `strong` = ncg, `none` = no filter."""
+    `full` = kind+ref+tags, `strong` = ref, `none` = no filter."""
     wanted = {
-        "full": {"kind", "ncg", "tags"},
-        "strong": {"ncg"},
+        "full": {"kind", "ref", "tags"},
+        "strong": {"ref"},
         "none": set(),
     }
 
@@ -284,37 +284,37 @@ class TestFilterFallbackLadder:
         return found, retrieval
 
     async def test_step_1_all_clauses_when_they_find_something(self) -> None:
-        found, retrieval = await self._run(_answering_at("full"), [KIND, NCG, TAG])
+        found, retrieval = await self._run(_answering_at("full"), [KIND, REF, TAG])
 
         assert (found.level, found.relaxed) == ("full", False)
         assert len(retrieval.calls) == 1
-        assert retrieval.calls[0].extra_filter == clauses_to_filter([KIND, NCG, TAG])
+        assert retrieval.calls[0].extra_filter == clauses_to_filter([KIND, REF, TAG])
 
     async def test_step_2_only_numeric_and_date_clauses_on_zero_hits(self) -> None:
-        found, retrieval = await self._run(_answering_at("strong"), [KIND, NCG, TAG])
+        found, retrieval = await self._run(_answering_at("strong"), [KIND, REF, TAG])
 
         assert (found.level, found.relaxed) == ("strong", True)
         assert [c.extra_filter for c in retrieval.calls] == [
-            clauses_to_filter([KIND, NCG, TAG]),
-            Filter.eq("ncg", 372),  # the free-text clauses (kind, tags) are gone
+            clauses_to_filter([KIND, REF, TAG]),
+            Filter.eq("ref", 372),  # the free-text clauses (kind, tags) are gone
         ]
         assert found.result.hits
 
     async def test_step_3_no_filter_when_even_the_strong_clauses_find_nothing(self) -> None:
-        found, retrieval = await self._run(_answering_at("none"), [KIND, NCG, TAG])
+        found, retrieval = await self._run(_answering_at("none"), [KIND, REF, TAG])
 
         assert (found.level, found.relaxed) == ("none", True)
         assert [c.extra_filter is None for c in retrieval.calls] == [False, False, True]
 
     async def test_nothing_found_at_any_level_returns_the_empty_result(self) -> None:
-        found, retrieval = await self._run(lambda _c: (), [KIND, NCG])
+        found, retrieval = await self._run(lambda _c: (), [KIND, REF])
 
         assert not found.result.hits
         assert (found.level, found.relaxed) == ("none", True)
         assert len(retrieval.calls) == 3
 
     async def test_advances_only_on_zero_hits(self) -> None:
-        found, retrieval = await self._run(lambda _c: (make_hit("x"),), [KIND, NCG])
+        found, retrieval = await self._run(lambda _c: (make_hit("x"),), [KIND, REF])
         assert (found.level, len(retrieval.calls)) == ("full", 1)
 
     async def test_without_strong_clauses_the_strong_step_is_skipped(self) -> None:
@@ -324,7 +324,7 @@ class TestFilterFallbackLadder:
     async def test_when_every_clause_is_strong_the_strong_step_equals_full_and_is_skipped(
         self,
     ) -> None:
-        found, retrieval = await self._run(_answering_at("none"), [NCG])
+        found, retrieval = await self._run(_answering_at("none"), [REF])
         assert (found.level, len(retrieval.calls)) == ("none", 2)
 
     async def test_no_clauses_is_a_plain_search_and_not_a_relaxation(self) -> None:
@@ -334,26 +334,26 @@ class TestFilterFallbackLadder:
 
     async def test_equal_bounds_on_one_field_become_a_single_eq(self) -> None:
         bounds: Any = [
-            {"field": "ncg", "op": "gte", "value": 372},
-            {"field": "ncg", "op": "lte", "value": 372},
+            {"field": "ref", "op": "gte", "value": 372},
+            {"field": "ref", "op": "lte", "value": 372},
             {"field": "issued", "op": "gte", "value": "2020-01-01"},
             {"field": "issued", "op": "lte", "value": "2021-01-01"},
         ]
         assert normalize_clauses(bounds) == [
-            {"field": "ncg", "op": "eq", "value": 372},
+            {"field": "ref", "op": "eq", "value": 372},
             bounds[2],
             bounds[3],
         ]
-        assert clauses_to_filter(bounds[:2]) == Filter.eq("ncg", 372)
+        assert clauses_to_filter(bounds[:2]) == Filter.eq("ref", 372)
 
     def test_strong_clauses_are_the_numeric_and_date_fields(self) -> None:
         refs: Any = {"field": "refs", "op": "eq", "value": 31}
         issued: Any = {"field": "issued", "op": "gte", "value": "2020-01-01"}
-        assert strong_clauses([KIND, NCG, TAG, refs, issued], TYPED) == [NCG, refs, issued]
+        assert strong_clauses([KIND, REF, TAG, refs, issued], TYPED) == [REF, refs, issued]
 
     async def test_the_node_records_the_level(self) -> None:
         retrieval = FakeRetrieval(respond=_answering_at("strong"))
-        state: Any = {"topic": "typed", "query": "q", "filters": [KIND, NCG, TAG]}
+        state: Any = {"topic": "typed", "query": "q", "filters": [KIND, REF, TAG]}
 
         result = await RetrieveNode(retrieval, {"typed": TYPED})(state, runtime_for())
 

@@ -35,6 +35,7 @@ from agintis.modules.knowledge.infrastructure.tei import FallbackReranker
 from agintis.platform.auth import AuthConfigError
 from agintis.platform.db import DatabaseCheckError
 from agintis.platform.llm import ChatModels, ChatRole, LlmConfig, LlmError
+from tests.support.multi_profile_case import PROFILES_DIR
 from tests.support.postgres import PROJECT_ROOT
 from tests.support.settings import make_settings
 
@@ -86,14 +87,13 @@ def test_build_wires_strategies_from_settings() -> None:
     assert {p.name for p in container.profiles.all()} == {"default"}
 
 
-def test_build_wires_the_spensiones_case_profiles_router_and_batch_ingest() -> None:
-    profiles_dir = PROJECT_ROOT / "case" / "spensiones" / "profiles"
-    container = Container.build(make_settings(knowledge={"profiles_dir": profiles_dir}))
-    assert len(container.profiles.all()) == 8  # the default profile + the seven of the case
-    selection = container.profile_router.select({"doc_type": "ncg"})
+def test_build_wires_the_case_profiles_router_and_batch_ingest() -> None:
+    container = Container.build(make_settings(knowledge={"profiles_dir": PROFILES_DIR}))
+    assert len(container.profiles.all()) == 4  # the default profile + the three of the case
+    selection = container.profile_router.select({"doc_type": "report"})
     assert selection.profile is not None
-    assert selection.profile.name == "spensiones_ncg"
-    assert container.profile_router.select({"doc_type": "oficio"}).profile is None
+    assert selection.profile.name == "fixture_records_pdf"
+    assert container.profile_router.select({"doc_type": "memo"}).profile is None
     assert container.ingest_batch is not None
 
 

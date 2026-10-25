@@ -22,10 +22,8 @@ from agintis.modules.agents.rag_chat import (
     build_clarification,
     build_graph,
     build_router,
-    load_agent_specs,
     parse_agent_spec,
     rag_chat_runner,
-    validate_agent_specs,
 )
 from agintis.modules.agents_catalog.api import (
     AgentRegistry,
@@ -37,14 +35,13 @@ from agintis.modules.agents_catalog.api import (
     Step,
     Token,
 )
-from agintis.modules.knowledge.api import RagProfile, RagProfileRegistry, load_profiles_dir
+from agintis.modules.knowledge.api import RagProfile, RagProfileRegistry
 from agintis.modules.knowledge.infrastructure.errors import RetrievalErrorClassifier
 from agintis.modules.knowledge.infrastructure.tei import TeiUnavailableError
 from agintis.platform.llm import ProviderErrorClassifier
 from agintis.shared_kernel.ids import ThreadId
 from tests.fakes.llm import ScriptedChatModel, chat_models_for
 from tests.fakes.retrieval import FakeRetrieval, FakeTopicProbe
-from tests.support.postgres import PROJECT_ROOT
 from tests.unit.agents.support import (
     CLARIFICATION,
     LOW,
@@ -650,30 +647,3 @@ class TestSpecBlock:
         assert build_clarification(
             scoped_spec(clarification={"policy": "none"}), router
         ).may_refuse is (False)
-
-
-class TestSpensiones:
-    def test_the_case_agent_uses_the_calibrated_bands_and_boots_with_the_same_warnings(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        root = PROJECT_ROOT / "case" / "spensiones"
-        registry = RagProfileRegistry(load_profiles_dir(root / "profiles"))
-        with caplog.at_level("WARNING"):
-            (spec,) = load_agent_specs(root / "agents")
-            validate_agent_specs([spec], registry)
-
-        clarification = spec.clarification
-        assert clarification.policy == "evidence"
-        assert (clarification.low_confidence_below, clarification.out_of_scope_below) == (
-            0.6103,
-            0.4442,
-        )
-        assert clarification.out_of_scope_message != DEFAULT_OUT_OF_SCOPE_MESSAGE
-        assert clarification.out_of_scope_message.startswith("Solo puedo responder")
-        assert clarification.low_scope_max_topics == 3
-        assert clarification.social_message != DEFAULT_SOCIAL_MESSAGE
-        # Only the known no-reranker warning: the new block adds none.
-        assert [r.getMessage() for r in caplog.records if r.levelname == "WARNING"] == [
-            "agent 'spensiones-rag': sufficiency 'relevance' with max_rewrites=1 but no topic "
-            "profile has a reranker: the rewrite loop never fires without a reranker"
-        ]

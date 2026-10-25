@@ -73,7 +73,7 @@ _MISSING_TAIL = (
 # answer: no regex tells facts from filler.
 _CONTRAST = re.compile(r"\b(?:pero|sin embargo|no obstante|aunque|salvo que)\b")
 # Offers of help directed AT THE USER only: a bare "puede" or "consulta" is as likely to be a fact
-# ("el afiliado puede solicitar el retiro en su AFP") as an offer.
+# ("el titular puede solicitar el reembolso en su sucursal") as an offer.
 _OFFER = re.compile(
     r"\b(?:puedes|podrias|te (?:recomiendo|sugiero)|intenta|reformul\w*|"
     r"consult(?:ar|a) (?:a|en|con)|contacta\w*|ayudarte)\b"

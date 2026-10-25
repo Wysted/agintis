@@ -42,11 +42,11 @@ from tests.fakes.llm import RaisingModel, ScriptedChatModel, chat_models_for, ra
 from tests.unit.agent_kit.support import runtime_for
 
 TOPICS = [
-    TopicInfo("ncg", "Normas de caracter general"),
-    TopicInfo("circular", "Circulares\nde la Superintendencia"),
+    TopicInfo("rules", "General rules"),
+    TopicInfo("notices", "Notices\nfrom the office"),
     TopicInfo("faq", "Preguntas frecuentes"),
 ]
-NAMES = ["ncg", "circular", "faq"]
+NAMES = ["rules", "notices", "faq"]
 
 
 def _choice(topic: str, confidence: float) -> dict[str, Any]:
@@ -67,9 +67,9 @@ def _names(routed: list[RoutedTopic]) -> list[str]:
 
 class TestSingleTopicRouter:
     async def test_always_the_same_topic_and_never_a_model_call(self) -> None:
-        router = SingleTopicRouter("ncg")
-        assert await router.route("anything") == _routed(("ncg", 1.0))
-        assert await router.route("") == _routed(("ncg", 1.0))
+        router = SingleTopicRouter("rules")
+        assert await router.route("anything") == _routed(("rules", 1.0))
+        assert await router.route("") == _routed(("rules", 1.0))
 
 
 class TestSelection:
@@ -113,29 +113,29 @@ class TestLlmTopicRouter:
     async def test_the_primary_and_the_confident_secondary_are_selected(self) -> None:
         model = ScriptedChatModel(
             structured=[
-                {"topics": [_choice("faq", 0.9), _choice("ncg", 0.7), _choice("circular", 0.2)]}
+                {"topics": [_choice("faq", 0.9), _choice("rules", 0.7), _choice("notices", 0.2)]}
             ]
         )
 
         routed = await _router(model, max_topics=3).route("q")
 
-        assert routed == _routed(("faq", 0.9), ("ncg", 0.7))  # circular is below 0.6
+        assert routed == _routed(("faq", 0.9), ("rules", 0.7))  # notices is below 0.6
 
     async def test_a_sure_router_searches_only_the_primary(self) -> None:
         model = ScriptedChatModel(
-            structured=[{"topics": [_choice("ncg", 0.95), _choice("faq", 0.4)]}]
+            structured=[{"topics": [_choice("rules", 0.95), _choice("faq", 0.4)]}]
         )
 
-        assert _names(await _router(model).route("q")) == ["ncg"]
+        assert _names(await _router(model).route("q")) == ["rules"]
 
     async def test_the_threshold_is_configurable(self) -> None:
-        reply = {"topics": [_choice("ncg", 0.95), _choice("faq", 0.4)]}
+        reply = {"topics": [_choice("rules", 0.95), _choice("faq", 0.4)]}
 
         wide = await _router(
             ScriptedChatModel(structured=[reply]), secondary_min_confidence=0.3
         ).route("q")
 
-        assert _names(wide) == ["ncg", "faq"]
+        assert _names(wide) == ["rules", "faq"]
         assert DEFAULT_SECONDARY_MIN_CONFIDENCE == 0.6
 
     async def test_the_selection_is_deduplicated_clamped_and_truncated(self) -> None:
@@ -145,8 +145,8 @@ class TestLlmTopicRouter:
                     "topics": [
                         _choice("faq", 9),
                         _choice("faq", 0.1),
-                        _choice("ncg", 0.8),
-                        _choice("circular", 0.8),
+                        _choice("rules", 0.8),
+                        _choice("notices", 0.8),
                     ]
                 }
             ]
@@ -154,7 +154,7 @@ class TestLlmTopicRouter:
 
         routed = await _router(model, max_topics=2).route("q")
 
-        assert routed == _routed(("faq", 1.0), ("ncg", 0.8))
+        assert routed == _routed(("faq", 1.0), ("rules", 0.8))
 
     async def test_the_default_cap_is_two(self) -> None:
         model = ScriptedChatModel(structured=[{"topics": [_choice(n, 0.9) for n in NAMES]}])
@@ -162,30 +162,30 @@ class TestLlmTopicRouter:
         assert len(await _router(model).route("q")) == 2
 
     async def test_the_prompt_lists_the_topics_with_their_descriptions_and_the_cap(self) -> None:
-        model = ScriptedChatModel(structured=[{"topics": [_choice("ncg", 0.9)]}])
+        model = ScriptedChatModel(structured=[{"topics": [_choice("rules", 0.9)]}])
 
-        await _router(model, max_topics=2, prompt="ROUTE PROMPT").route("what is NCG 372?")
+        await _router(model, max_topics=2, prompt="ROUTE PROMPT").route("what is REF 372?")
 
         system, question = model.structured_seen[0]
         assert isinstance(system, SystemMessage)
         text = str(system.content)
         assert text.startswith("ROUTE PROMPT")
-        assert "- ncg: Normas de caracter general" in text
-        assert "- circular: Circulares de la Superintendencia" in text  # one line
+        assert "- rules: General rules" in text
+        assert "- notices: Notices from the office" in text  # one line
         assert "- faq: Preguntas frecuentes" in text
         assert "at most 2 topics" in text
-        assert question == HumanMessage("what is NCG 372?")
+        assert question == HumanMessage("what is REF 372?")
 
     async def test_the_router_role_is_used_and_the_binding_is_built_once(self) -> None:
         router_model = ScriptedChatModel(
-            structured=[{"topics": [_choice("ncg", 0.9)]}, {"topics": [_choice("faq", 0.9)]}]
+            structured=[{"topics": [_choice("rules", 0.9)]}, {"topics": [_choice("faq", 0.9)]}]
         )
         other = ScriptedChatModel()  # any other role would pop from an empty list
         router = LlmTopicRouter(
             chat_models_for(other, by_role={ChatRole.ROUTER: router_model}), TOPICS
         )
 
-        assert _names(await router.route("a")) == ["ncg"]
+        assert _names(await router.route("a")) == ["rules"]
         assert _names(await router.route("b")) == ["faq"]
         assert len(router_model.schemas) == 1
         assert not other.schemas
@@ -220,7 +220,7 @@ class TestLlmTopicRouter:
 
         routed = await _router(model, max_topics=2).route("q")
 
-        assert routed == _routed(("ncg", 0.0), ("circular", 0.0))  # confidence unknown
+        assert routed == _routed(("rules", 0.0), ("notices", 0.0))  # confidence unknown
 
     async def test_the_fallback_is_every_topic_when_they_fit_in_the_cap(self) -> None:
         model = ScriptedChatModel(structured=["garbage"])
@@ -231,22 +231,22 @@ class TestLlmTopicRouter:
         """One unknown topic fails the strict parse; the valid ones are still used."""
         model = ScriptedChatModel(
             structured=[
-                {"topics": [_choice("nope", 0.99), _choice("faq", 0.9), _choice("ncg", 0.7)]}
+                {"topics": [_choice("nope", 0.99), _choice("faq", 0.9), _choice("rules", 0.7)]}
             ]
         )
 
         routed = await _router(model, max_topics=3).route("q")
 
-        assert routed == _routed(("faq", 0.9), ("ncg", 0.7))  # order and confidences kept
+        assert routed == _routed(("faq", 0.9), ("rules", 0.7))  # order and confidences kept
 
     async def test_bare_names_are_rescued_with_unknown_confidence_so_only_the_first_stays(
         self,
     ) -> None:
-        model = ScriptedChatModel(structured=[{"topics": ["nope", "circular", "faq"]}])
+        model = ScriptedChatModel(structured=[{"topics": ["nope", "notices", "faq"]}])
 
         routed = await _router(model, max_topics=3).route("q")
 
-        assert routed == _routed(("circular", 0.0))
+        assert routed == _routed(("notices", 0.0))
 
     async def test_a_provider_error_is_not_swallowed(self) -> None:
         error = rate_limit_error()
@@ -257,7 +257,7 @@ class TestLlmTopicRouter:
 
     def test_fallback_topics(self) -> None:
         assert _names(fallback_topics(NAMES, 5)) == NAMES
-        assert _names(fallback_topics(NAMES, 1)) == ["ncg"]
+        assert _names(fallback_topics(NAMES, 1)) == ["rules"]
 
     def test_construction_is_validated(self) -> None:
         models = chat_models_for()
@@ -293,32 +293,32 @@ class _FixedRouter:
 
 class TestRouteNode:
     async def test_fans_out_one_send_per_topic_and_resets_the_results(self) -> None:
-        node = RouteNode(SingleTopicRouter("ncg"), NAMES)
+        node = RouteNode(SingleTopicRouter("rules"), NAMES)
         state: Any = {"messages": [HumanMessage("raw")], "query": "standalone"}
 
         command = await node(state, runtime_for())
 
         assert isinstance(command, Command)
         (send,) = _sends(command)
-        assert (send.node, send.arg) == ("topic", {"topic": "ncg", "query": "standalone"})
+        assert (send.node, send.arg) == ("topic", {"topic": "rules", "query": "standalone"})
         update = _update(command)
-        assert update["routed_topics"] == _routed(("ncg", 1.0))
+        assert update["routed_topics"] == _routed(("rules", 1.0))
         assert isinstance(update["topic_results"], Overwrite)
         assert update["topic_results"].value == []
 
     async def test_several_topics_keep_the_router_order_and_confidences(self) -> None:
         model = ScriptedChatModel(
-            structured=[{"topics": [_choice("faq", 0.9), _choice("ncg", 0.8)]}]
+            structured=[{"topics": [_choice("faq", 0.9), _choice("rules", 0.8)]}]
         )
         node = RouteNode(_router(model, max_topics=2), NAMES, 2)
 
         command = await node({"messages": [], "query": "q"}, runtime_for())
 
-        assert [s.arg["topic"] for s in _sends(command)] == ["faq", "ncg"]
-        assert _update(command)["routed_topics"] == _routed(("faq", 0.9), ("ncg", 0.8))
+        assert [s.arg["topic"] for s in _sends(command)] == ["faq", "rules"]
+        assert _update(command)["routed_topics"] == _routed(("faq", 0.9), ("rules", 0.8))
 
     async def test_without_a_query_it_routes_the_last_user_message(self) -> None:
-        node = RouteNode(SingleTopicRouter("ncg"), NAMES)
+        node = RouteNode(SingleTopicRouter("rules"), NAMES)
 
         command = await node({"messages": [HumanMessage(" the question ")]}, runtime_for())
 
@@ -333,7 +333,7 @@ class TestRouteNode:
         command = await node({"messages": [], "query": "q"}, runtime_for())
 
         # `Command(goto=[])` would end the run silently, without an answer.
-        assert [s.arg["topic"] for s in _sends(command)] == ["ncg", "circular"]
+        assert [s.arg["topic"] for s in _sends(command)] == ["rules", "notices"]
         assert _update(command)["routed_topics"] == fallback_topics(NAMES, 2)
 
     def test_construction_is_validated(self) -> None:

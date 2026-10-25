@@ -210,10 +210,10 @@ class TestDedupeHeadingEcho:
 
 
 class TestStripRunningHeaders:
-    PATTERNS = (r"^Compendio de Normas .* Libro I \d+$",)
+    PATTERNS = (r"^Handbook of Rules .* Libro I \d+$",)
 
     async def test_removes_matching_lines_in_the_zone_only(self) -> None:
-        header = "Compendio de Normas - Libro I 12"
+        header = "Handbook of Rules - Libro I 12"
         doc = _pages(f"{header}\nbody", f"body\n{header}")
         out = await _run(
             StripRunningHeaders, doc, patterns=list(self.PATTERNS), zone="top", max_lines=1
@@ -221,7 +221,7 @@ class TestStripRunningHeaders:
         assert _texts(out) == ["body", f"body\n{header}"]
 
     async def test_bottom_and_any_zones(self) -> None:
-        header = "Compendio de Normas - Libro I 12"
+        header = "Handbook of Rules - Libro I 12"
         doc = _pages(f"{header}\nbody\n{header}")
         bottom = await _run(
             StripRunningHeaders, doc, patterns=list(self.PATTERNS), zone="bottom", max_lines=1
@@ -233,7 +233,7 @@ class TestStripRunningHeaders:
         assert _texts(anywhere) == ["body"]
 
     async def test_documents_without_pages_are_untouched(self) -> None:
-        doc = _plain("Compendio de Normas - Libro I 12\nbody")
+        doc = _plain("Handbook of Rules - Libro I 12\nbody")
         assert await _run(StripRunningHeaders, doc, patterns=list(self.PATTERNS)) == doc
 
 

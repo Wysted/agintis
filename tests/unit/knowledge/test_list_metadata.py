@@ -213,7 +213,7 @@ class TestFingerprint:
         assert len({base.fingerprint, named.fingerprint, other.fingerprint}) == 3
 
     def test_routing_and_status_are_not_part_of_the_hash(self) -> None:
-        rule = RoutingRule((RoutingCondition("doc_type", ("ncg",)),))
+        rule = RoutingRule((RoutingCondition("doc_type", ("report",)),))
         assert _profile(routing=(rule,), status="draft").fingerprint == _profile().fingerprint
 
     def test_cleaners_still_count(self) -> None:

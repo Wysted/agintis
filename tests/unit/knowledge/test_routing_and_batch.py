@@ -27,9 +27,7 @@ from tests.fakes.knowledge import (
     InMemoryDocumentRepository,
     InMemoryIngestLock,
 )
-from tests.support.postgres import PROJECT_ROOT
-
-CASE_PROFILES = PROJECT_ROOT / "case" / "spensiones" / "profiles"
+from tests.support.multi_profile_case import PROFILES_DIR as CASE_PROFILES
 
 
 def _profile(name: str, *rules: RoutingRule, status: str = "active") -> RagProfile:
@@ -56,12 +54,12 @@ def _rule(*, priority: int = 0, **match: Any) -> RoutingRule:
 
 class TestProfileRouter:
     def test_the_highest_priority_wins_whatever_the_order(self) -> None:
-        narrow = _profile("narrow", _rule(doc_type=["ncg"], subtype=["NP"], priority=10))
-        broad = _profile("broad", _rule(doc_type=["ncg"]))
+        narrow = _profile("narrow", _rule(doc_type=["memo"], subtype=["NP"], priority=10))
+        broad = _profile("broad", _rule(doc_type=["memo"]))
         for profiles in ([narrow, broad], [broad, narrow]):
             router = ProfileRouter(profiles)
-            assert router.select({"doc_type": "ncg", "subtype": "NP"}).profile is narrow
-            assert router.select({"doc_type": "ncg", "subtype": "NC"}).profile is broad
+            assert router.select({"doc_type": "memo", "subtype": "NP"}).profile is narrow
+            assert router.select({"doc_type": "memo", "subtype": "NC"}).profile is broad
 
     def test_an_overlap_at_the_same_priority_is_ambiguous_and_unrouted(self) -> None:
         a = _profile("a", _rule(doc_type=["x"]))
@@ -166,33 +164,17 @@ class TestYamlRouting:
 @pytest.mark.parametrize(
     ("row", "expected"),
     [
-        ({"doc_type": "compendio_libro"}, "spensiones_compendio"),
-        ({"doc_type": "compendio_titulo"}, None),  # navigation hubs are not ingested
-        ({"doc_type": "circular"}, "spensiones_circular"),
-        ({"doc_type": "ncg"}, "spensiones_ncg"),
-        (
-            {"doc_type": "articulo_html", "title": "¿Cuánto me deben descontar?"},
-            "spensiones_articulo_faq",
-        ),
-        (
-            {"doc_type": "articulo_html", "title": "Resolución Exenta N° 5, del 3 de enero"},
-            "spensiones_resolucion",
-        ),
-        ({"doc_type": "resolucion", "title": "Resolución Exenta N° 1266"}, "spensiones_resolucion"),
-        (
-            {"doc_type": "guia_faq", "title": '"Libro de Jurisprudencia de la Superintendencia"'},
-            "spensiones_jurisprudencia_indice",
-        ),
-        ({"doc_type": "guia_faq", "title": "Nota Interna N° 1, del 2 de mayo"}, None),  # draft
-        ({"doc_type": "oficio"}, None),
-        # Lower-priority broad rules never beat a narrower one, in any file order.
-        (
-            {"doc_type": "articulo_html", "title": "Resolución N° 7"},
-            "spensiones_resolucion",
-        ),
+        ({"doc_type": "report"}, "fixture_records_pdf"),
+        ({"doc_type": "report_index"}, None),  # navigation hubs are not ingested
+        ({"doc_type": "page_html", "title": "How do I reset?"}, "fixture_docs_html"),
+        ({"doc_type": "page_html", "title": "Notice No. 5, of 3 January"}, "fixture_records_pdf"),
+        ({"doc_type": "page_html", "title": "Notice N 7"}, "fixture_records_pdf"),
+        ({"doc_type": "faq", "title": "Quick question"}, None),  # draft profile
+        ({"doc_type": "memo"}, None),
     ],
 )
-def test_the_spensiones_index_rows_are_routed(row: dict[str, Any], expected: str | None) -> None:
+def test_the_fixture_index_rows_are_routed(row: dict[str, Any], expected: str | None) -> None:
+    """Rules by doc_type, a title regex outranking a broader rule, hubs and drafts unrouted."""
     router = ProfileRouter(load_profiles_dir(CASE_PROFILES))
     selection = router.select(row)
     assert (selection.profile.name if selection.profile else None) == expected

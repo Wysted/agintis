@@ -98,7 +98,7 @@ class TestDisplayTitle:
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [
-            ("  NCG 372\t\n sobre   inversiones ", "NCG 372 sobre inversiones"),
+            ("  REF 372\t\n sobre   inversiones ", "REF 372 sobre inversiones"),
             ("evil" + "\u202e" + "title" + "\u200b" + "\x07", "eviltitle"),
             ("a\x00b\ud800c", "abc"),
             ("a" + "\u00a0" + "b", "a b"),

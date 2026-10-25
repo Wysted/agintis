@@ -260,13 +260,13 @@ class TestIngestDocument:
         assert saved.metadata_hash != metadata_hash({})
 
     async def test_the_caller_title_wins_over_the_parser_title(self, env: Env) -> None:
-        source = _source(document_metadata={"title": "  NCG 372\t\n sobre   inversiones "})
+        source = _source(document_metadata={"title": "  REF 372\t\n sobre   inversiones "})
 
         result = await env.ingest.execute(TENANT_A, PROFILE, source)
 
         saved = await env.documents.get(TENANT_A, result.document_id)
         assert saved is not None
-        assert saved.title == "NCG 372 sobre inversiones"
+        assert saved.title == "REF 372 sobre inversiones"
 
     @pytest.mark.parametrize("title", ["", "   \n", 7, None, ["a"]])
     async def test_an_unusable_caller_title_keeps_the_parser_title(
@@ -290,7 +290,7 @@ class TestIngestDocument:
         assert saved.title == "x" * MAX_TITLE_CHARS
 
     async def test_a_pdf_without_title_takes_the_caller_title(self, env: Env) -> None:
-        uri = "https://host/apps/GetFile.php?id=003&namefile=NCG-SP/NP0000372.pdf"
+        uri = "https://host/apps/GetFile.php?id=003&namefile=REF-X/NP0000372.pdf"
         ingest = IngestDocument(
             env.documents,
             env.chunks,
@@ -304,14 +304,14 @@ class TestIngestDocument:
             uri=uri,
             mime_type="application/pdf",
             content=make_pdf(["Some text of the norm."]),
-            document_metadata={"title": "NCG N° 372"},
+            document_metadata={"title": "REF N° 372"},
         )
 
         result = await ingest.execute(TENANT_A, PROFILE, pdf)
 
         saved = await env.documents.get(TENANT_A, result.document_id)
         assert saved is not None
-        assert saved.title == "NCG N° 372"
+        assert saved.title == "REF N° 372"
         assert [c.text for c, _ in env.chunks.items] == ["Some text of the norm."]
 
     async def test_the_title_does_not_change_chunks_nor_the_fingerprint(self, env: Env) -> None:
