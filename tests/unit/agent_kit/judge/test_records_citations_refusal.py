@@ -322,7 +322,7 @@ def test_the_widened_markers_catch_the_reviewers_false_negatives(answer: str) ->
         "La normativa no permite retiros anticipados.",
         "El texto no indica un plazo distinto, por lo que rige el general.",
         "Los documentos no permiten el traspaso entre fondos distintos.",
-        "Las fuentes no tienen carácter vinculante para las AFP.",
+        "Las fuentes no tienen carácter vinculante para los proveedores.",
     ],
 )
 def test_the_narrowed_markers_do_not_flag_answers_that_merely_say_no(answer: str) -> None:
@@ -383,7 +383,7 @@ def test_the_hash_covers_the_question_and_the_expected_scope() -> None:
         "El texto no indica la fecha exacta.",
         "Los documentos no mencionan las tasas vigentes, solo el procedimiento.",
         "No sé cuál es mejor, pero el fondo A tiene menor riesgo.",
-        "No tengo la respuesta exacta, sin embargo el compendio fija 24 meses.",
+        "No tengo la respuesta exacta, sin embargo el manual fija 24 meses.",
     ],
 )
 def test_an_article_or_a_contrastive_continuation_that_asserts_something_is_not_a_refusal(
@@ -398,8 +398,8 @@ def test_an_article_or_a_contrastive_continuation_that_asserts_something_is_not_
         "Las fuentes no lo dicen.",
         "Los documentos no abordan eso.",
         "No lo sé, pero puedes reformular la pregunta.",
-        "No tengo antecedentes sobre eso; consulta a tu AFP.",
-        "No sé la respuesta. Puedes consultar el sitio de la Superintendencia.",
+        "No tengo antecedentes sobre eso; consulta a tu proveedor.",
+        "No sé la respuesta. Puedes consultar el sitio del regulador.",
     ],
 )
 def test_pronoun_forms_and_offers_of_help_stay_refusals(answer: str) -> None:
@@ -438,8 +438,8 @@ def test_a_semicolon_continuation_is_not_a_contrast(answer: str) -> None:
 @pytest.mark.parametrize(
     "answer",
     [
-        "No tengo información sobre ese plazo, pero el afiliado puede solicitar el retiro "
-        "en su AFP.",
+        "No tengo información sobre ese plazo, pero el cliente puede solicitar el reembolso "
+        "en su sucursal.",
         "No sé cuál es el monto, pero la pregunta se resuelve en el artículo 5.",
         "No lo sé, pero el trabajador puede consultar la norma vigente.",
     ],
@@ -452,10 +452,10 @@ def test_a_bare_puede_or_consulta_is_a_fact_not_an_offer_of_help(answer: str) ->
     "answer",
     [
         "No lo sé, pero puedes reformular la pregunta.",
-        "No tengo información sobre eso, pero te recomiendo consultar a tu AFP.",
-        "No lo sé, pero puedes consultar en el sitio de la Superintendencia.",
+        "No tengo información sobre eso, pero te recomiendo consultar a tu proveedor.",
+        "No lo sé, pero puedes consultar en el sitio del regulador.",
         "No encontré nada, pero intenta con otras palabras.",
-        "No lo sé, pero contacta a tu AFP.",
+        "No lo sé, pero contacta a tu proveedor.",
     ],
 )
 def test_offers_directed_at_the_user_keep_the_refusal(answer: str) -> None:

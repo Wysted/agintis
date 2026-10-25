@@ -118,7 +118,7 @@ async def test_wire_shape_of_every_event() -> None:
     runner = FakeRunner(
         [
             Step("n", "finished"),
-            Step("topic/retrieve", "started", "ncg"),
+            Step("topic/retrieve", "started", "rules"),
             Scope("low", 0.5),
             Scope("out"),
             Token("Hi"),
@@ -134,7 +134,7 @@ async def test_wire_shape_of_every_event() -> None:
     assert data == {
         "run_started0": {"run_id": "run-1", "agent_id": "fake"},
         "step1": {"node": "n", "status": "finished", "label": None},
-        "step2": {"node": "topic/retrieve", "status": "started", "label": "ncg"},
+        "step2": {"node": "topic/retrieve", "status": "started", "label": "rules"},
         "scope3": {"level": "low", "score": 0.5},
         "scope4": {"level": "out", "score": None},
         "token5": {"text": "Hi"},

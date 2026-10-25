@@ -232,7 +232,7 @@ class TestLayeredRegex:
 
     def test_later_layers_override_earlier_ones(self) -> None:
         kwargs = {
-            "document_metadata": {"title": "MODIFICA EL TÍTULO I DEL LIBRO III DEL COMPENDIO"},
+            "document_metadata": {"title": "MODIFICA EL TÍTULO I DEL LIBRO III DEL MANUAL"},
             "groups": {
                 "enmienda_head": (
                     "Reemplácese, en el número 6.1 del Capítulo II de la Letra D.1 siguiente",
@@ -446,10 +446,10 @@ class TestClassifyIsMemoized:
 
 class TestTransforms:
     def test_value_map_replaces_known_values_only(self) -> None:
-        params = {"map": {"pensiones": "SP", "cesantia": "SC"}}
-        assert ValueMap().apply("pensiones", params, TODAY) == "SP"
+        params = {"map": {"billing": "BL", "refunds": "RF"}}
+        assert ValueMap().apply("billing", params, TODAY) == "BL"
         assert ValueMap().apply("otro", params, TODAY) == "otro"
-        assert ValueMap().apply(("pensiones", "x"), params, TODAY) == ("SP", "x")
+        assert ValueMap().apply(("billing", "x"), params, TODAY) == ("BL", "x")
         assert ValueMap().apply(5, params, TODAY) == 5
 
     def test_date_floor_completes_partial_dates(self) -> None:

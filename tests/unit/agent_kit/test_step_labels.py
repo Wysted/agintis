@@ -34,7 +34,7 @@ class Parent(TypedDict):
     found: Annotated[list[str], operator.add]
 
 
-def _graph(topics: tuple[str, ...] = ("ncg", "compendio")) -> Pregel[Any, Any, Any, Any]:
+def _graph(topics: tuple[str, ...] = ("rules", "handbook")) -> Pregel[Any, Any, Any, Any]:
     async def extract(state: Branch) -> dict[str, Any]:
         return {}
 
@@ -99,12 +99,12 @@ async def test_topic_branches_and_their_inner_steps_carry_the_topic() -> None:
 
     for status in ("started", "finished"):
         topics = [s.label for s in steps if s.node == "topic" and s.status == status]
-        assert sorted(t or "" for t in topics) == ["compendio", "ncg"]
+        assert sorted(t or "" for t in topics) == ["handbook", "rules"]
     # Inner steps inherit the label of their parent task (one pair per branch).
     for inner in ("topic/extract_filters", "topic/retrieve"):
         for status in ("started", "finished"):
             labels = [s.label for s in steps if s.node == inner and s.status == status]
-            assert sorted(t or "" for t in labels) == ["compendio", "ncg"], (inner, status)
+            assert sorted(t or "" for t in labels) == ["handbook", "rules"], (inner, status)
 
 
 async def test_other_steps_have_no_label() -> None:
@@ -120,7 +120,7 @@ async def test_finished_reuses_the_label_of_the_same_task() -> None:
     # Started and finished labels pair per task even though END carries no input.
     started = sorted(s.label or "" for s in steps if s.node == "topic" and s.status == "started")
     finished = sorted(s.label or "" for s in steps if s.node == "topic" and s.status == "finished")
-    assert started == finished == ["compendio", "ncg"]
+    assert started == finished == ["handbook", "rules"]
 
 
 async def test_default_strategy_labels_nothing() -> None:

@@ -16,9 +16,9 @@ from agintis.modules.knowledge.api import DEFAULT_PROFILE, BatchOutcome, SourceF
 from tests.support.settings import FakeSettings
 
 ROWS = [
-    {"id": "doc-a", "doc_type": "circular", "number": "1", "section": ["S1", "S2"], "title": "A"},
-    {"id": "doc-b", "doc_type": "ncg", "number": "2", "title": "B"},
-    {"id": "doc-c", "doc_type": "circular", "number": "3", "title": "C"},
+    {"id": "doc-a", "doc_type": "notice", "number": "1", "section": ["S1", "S2"], "title": "A"},
+    {"id": "doc-b", "doc_type": "reports", "number": "2", "title": "B"},
+    {"id": "doc-c", "doc_type": "notice", "number": "3", "title": "C"},
 ]
 
 
@@ -27,29 +27,29 @@ def _case(tmp_path: Path) -> tuple[Path, Path]:
     index.parent.mkdir()
     index.write_text("\n".join(json.dumps(r) for r in ROWS) + "\n\n", encoding="utf-8")
     samples = tmp_path / "samples"
-    (samples / "circulares").mkdir(parents=True)
-    (samples / "circulares" / "doc-a.pdf").write_bytes(b"%PDF A")
-    (samples / "circulares" / "doc-c.pdf").write_bytes(b"%PDF C")
+    (samples / "notices").mkdir(parents=True)
+    (samples / "notices" / "doc-a.pdf").write_bytes(b"%PDF A")
+    (samples / "notices" / "doc-c.pdf").write_bytes(b"%PDF C")
     manifest = [
         {
             "id": "doc-a",
-            "family": "circulares",
+            "family": "notices",
             # absolute path of the machine that downloaded it: only the file name is used
-            "path": "/elsewhere/circulares/doc-a.pdf",
+            "path": "/elsewhere/notices/doc-a.pdf",
             "url": "https://example.test/a.pdf",
             "content_type": "application/pdf",
         },
         {
             "id": "doc-c",
-            "family": "circulares",
-            "path": "/elsewhere/circulares/doc-c.pdf",
+            "family": "notices",
+            "path": "/elsewhere/notices/doc-c.pdf",
             "url": "https://example.test/c.pdf",
             "content_type": "application/pdf",
         },
         {
             "id": "doc-b",
-            "family": "ncg",
-            "path": "/elsewhere/ncg/doc-b.pdf",  # never downloaded here
+            "family": "reports",
+            "path": "/elsewhere/reports/doc-b.pdf",  # never downloaded here
             "url": "https://example.test/b.pdf",
             "content_type": "application/pdf",
         },
@@ -67,7 +67,7 @@ def test_the_manifest_lists_only_files_that_exist_here(tmp_path: Path) -> None:
     _, samples = _case(tmp_path)
     files = load_manifest(samples)
     assert set(files) == {"doc-a", "doc-c"}
-    assert files["doc-a"].path == samples / "circulares" / "doc-a.pdf"
+    assert files["doc-a"].path == samples / "notices" / "doc-a.pdf"
     assert files["doc-a"].url == "https://example.test/a.pdf"
 
 
@@ -107,7 +107,7 @@ def test_items_are_produced_lazily(tmp_path: Path) -> None:
     items = local_items(index, samples, None)
     first = next(items)
     assert isinstance(first, SourceFile)
-    (samples / "circulares" / "doc-c.pdf").unlink()  # not read yet: gone by the time it is asked
+    (samples / "notices" / "doc-c.pdf").unlink()  # not read yet: gone by the time it is asked
     (late,) = list(items)
     assert isinstance(late, BatchOutcome)
     assert (late.status, late.uri) == ("failed", "https://example.test/c.pdf")
@@ -154,7 +154,7 @@ class TestBadData:
 
     def test_a_sample_that_is_not_a_regular_file_is_simply_not_local(self, tmp_path: Path) -> None:
         index, samples = _case(tmp_path)
-        broken = samples / "circulares" / "doc-a.pdf"
+        broken = samples / "notices" / "doc-a.pdf"
         broken.unlink()
         broken.mkdir()  # a directory where the file should be
         items = list(local_items(index, samples, None))
@@ -416,8 +416,8 @@ def test_prune_gets_the_loaded_profiles_without_the_default_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     index, samples = _case(tmp_path)
-    (samples / "ncg").mkdir()
-    (samples / "ncg" / "doc-b.pdf").write_bytes(b"%PDF B")  # every row now has its file
+    (samples / "reports").mkdir()
+    (samples / "reports" / "doc-b.pdf").write_bytes(b"%PDF B")  # every row now has its file
     pruned: list[tuple[object, ...]] = []
     monkeypatch.setattr(cli, "get_settings", FakeSettings)
     monkeypatch.setattr(cli, "Container", _fake_container([object(), object()], pruned))
@@ -436,8 +436,8 @@ def test_an_unreadable_index_line_skips_prune_end_to_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     index, samples = _case(tmp_path)
-    (samples / "ncg").mkdir()
-    (samples / "ncg" / "doc-b.pdf").write_bytes(b"%PDF B")
+    (samples / "reports").mkdir()
+    (samples / "reports" / "doc-b.pdf").write_bytes(b"%PDF B")
     index.write_text(index.read_text("utf-8") + "{not json\n", encoding="utf-8")
 
     pruned: list[tuple[object, ...]] = []

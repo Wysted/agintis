@@ -1,0 +1,46 @@
+# Synthetic fixture (neutral content): HTML help pages, cleaned at DOM level and kept whole.
+key: fixture_docs_html
+schema_version: 1
+routing:
+  # Broad rule (priority 0): the narrower notice rule of records_pdf (priority 10) outranks it.
+  - match: {doc_type: [page_html]}
+    priority: 0
+top_k: 5
+chunk_max_tokens: 512
+parser_key: simple
+cleaners:
+  - key: html_main_content
+    params:
+      title_selector: '#page_title h1'
+      include_selectors: ['#page_body']
+      exclude_selectors: ['[style*="display:none"]', 'script', 'style']
+      list_item_prefix: '- '
+      output: markdown
+  - key: html_collect
+    params:
+      fields:
+        keywords: {selector: '#page_body [style*="display:none"]', split: ','}
+  - key: normalize_whitespace
+    params: {collapse_inner_spaces: true, strip_lines: true, max_blank_lines: 1}
+chunker_key: whole_document
+chunker_params:
+  include_heading: true
+metadata_fields:
+  - {name: source_id,  type: str, source: 'document:id',        filterable: true}
+  - {name: doc_family, type: str, source: 'const:docs_html',    filterable: true}
+  - {name: page_id,    type: int, source: 'document:page_id',   filterable: true}
+  - {name: area,       type: str, source: 'document:area',      filterable: true}
+  - name: audiences
+    type: 'list[str]'
+    source: 'document:section'
+    transforms: [{key: path_segment, params: {take: last}}]
+    filterable: true
+  - name: is_question
+    type: str
+    source: 'extractor:classify'
+    params: {rules: [{field: title, pattern: '\?\s*$', label: 'yes'}], default: 'no'}
+    filterable: true
+  - {name: keywords,   type: 'list[str]', source: 'parsed:keywords', filterable: true}
+default_filter: null
+reranker_key: none
+retrieval_mode: hybrid

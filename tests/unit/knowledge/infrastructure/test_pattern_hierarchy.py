@@ -133,13 +133,13 @@ class TestStructure:
         assert drafts[2].metadata["heading"] == "Capítulo I. General rules > 1."
 
     async def test_prefix_template_reads_document_metadata_and_groups(self) -> None:
-        profile = _profile(heading_prefix_template="NCG {number} ({date}) {title:12} > {path}")
+        profile = _profile(heading_prefix_template="REF {number} ({date}) {title:12} > {path}")
         doc = _doc(
             LAW,
             metadata={"number": 372, "date": "2026-08-18", "title": "A very long document title"},
         )
         drafts = await _chunk(doc, profile)
-        assert drafts[2].text.startswith("NCG 372 (2026-08-18) A very long… > Capítulo I.")
+        assert drafts[2].text.startswith("REF 372 (2026-08-18) A very long… > Capítulo I.")
 
     async def test_a_document_without_headings_is_one_preamble_chunk(self) -> None:
         drafts = await _chunk(_doc("just text\nwith two lines"), _profile())

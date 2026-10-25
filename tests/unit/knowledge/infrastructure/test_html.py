@@ -27,7 +27,7 @@ PAGE = """<!doctype html>
 <html><head><title>Site - Pregunta</title><style>.x{}</style></head>
 <body>
 <nav><a href="/">Home</a></nav>
-<div id="titulo"><h1>Que es la pension?</h1></div>
+<div id="titulo"><h1>Que es el plan?</h1></div>
 <div id="cuerpo">
   <p>Primer parrafo con <a href="/x">enlace</a>
   y salto<br>de linea.</p>
@@ -62,7 +62,7 @@ class TestSelectors:
         return [text_content(n).strip() for n in select_all(root, [parse_selector(selector)])]
 
     def test_id_class_tag_and_descendant(self) -> None:
-        assert self._select("#titulo h1") == ["Que es la pension?"]
+        assert self._select("#titulo h1") == ["Que es el plan?"]
         assert self._select(".botones-texto") == ["Aumentar letra"]
         assert self._select("#cuerpo li")[0].startswith("Tener 65")
 
@@ -73,9 +73,9 @@ class TestSelectors:
         assert self._select("[href]")[0] == "Home"
 
     def test_child_combinator_and_lists(self) -> None:
-        assert self._select("#titulo > h1") == ["Que es la pension?"]
+        assert self._select("#titulo > h1") == ["Que es el plan?"]
         assert self._select("#cuerpo > h1") == []
-        assert self._select("h1, footer") == ["Que es la pension?", "Pie de pagina"]
+        assert self._select("h1, footer") == ["Que es el plan?", "Pie de pagina"]
 
     @pytest.mark.parametrize("selector", ["", "div >", "a:hover", "div[", "##x"])
     def test_unsupported_syntax_is_a_value_error(self, selector: str) -> None:
@@ -101,7 +101,7 @@ class TestHtmlRoute:
         assert "var x" not in text
         assert "Primer parrafo con enlace y salto de linea." in text
         assert parsed.source_html is not None
-        assert parsed.sections[0].headings == ("Que es la pension?",)
+        assert parsed.sections[0].headings == ("Que es el plan?",)
 
     async def test_extension_routes_when_the_mime_is_generic(self) -> None:
         source = SourceFile("https://x.cl/p.htm", "application/octet-stream", b"<p>hola</p>")
@@ -134,17 +134,14 @@ class TestHtmlMainContent:
 
     async def test_keeps_only_the_selected_content_as_sections(self) -> None:
         out = await _clean(HtmlMainContent, await _parse(), **self.PARAMS)
-        assert out.title == "Que es la pension?"
+        assert out.title == "Que es el plan?"
         by_heading = {s.headings: s.text for s in out.sections}
-        assert by_heading[("Que es la pension?",)] == (
-            "Primer parrafo con enlace y salto de linea."
+        assert by_heading[("Que es el plan?",)] == ("Primer parrafo con enlace y salto de linea.")
+        assert (
+            by_heading[("Que es el plan?", "Requisitos")] == "- Tener 65 anos\n\n- Estar afiliado"
         )
         assert (
-            by_heading[("Que es la pension?", "Requisitos")]
-            == "- Tener 65 anos\n\n- Estar afiliado"
-        )
-        assert (
-            by_heading[("Que es la pension?", "Requisitos", "Detalle")]
+            by_heading[("Que es el plan?", "Requisitos", "Detalle")]
             == "Texto del detalle.\n\na | b"
         )
         flat = " ".join(by_heading.values())
@@ -198,7 +195,7 @@ class TestHtmlCollect:
         assert dict(out.collected) == {
             "keywords": ("tag1", "tag2", "tag3"),
             "related_aids": (101, 202),
-            "headline": ("Que es la pension?",),
+            "headline": ("Que es el plan?",),
         }
         assert out.sections == main.sections
 
@@ -428,8 +425,8 @@ class TestBlockBoundaries:
 class TestHeadingsAndTitle:
     async def test_a_heading_equal_to_the_title_is_skipped(self) -> None:
         markup = (
-            "<body><div id=t><h1>Que es la pension?</h1></div>"
-            "<div id=c><h2>Que es la pension?</h2><p>Es un beneficio.</p>"
+            "<body><div id=t><h1>Que es el plan?</h1></div>"
+            "<div id=c><h2>Que es el plan?</h2><p>Es un beneficio.</p>"
             "<h2>Otro</h2><p>x</p></div>"
             "</body>"
         )
@@ -440,8 +437,8 @@ class TestHeadingsAndTitle:
             include_selectors=["#c"],
         )
         assert _structure(out) == [
-            (("Que es la pension?",), "Es un beneficio."),
-            (("Que es la pension?", "Otro"), "x"),
+            (("Que es el plan?",), "Es un beneficio."),
+            (("Que es el plan?", "Otro"), "x"),
         ]
 
     async def test_headings_keep_their_natural_level_below_the_title(self) -> None:

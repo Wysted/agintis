@@ -1,0 +1,39 @@
+# Synthetic fixture (neutral content): numbered notices and report indexes (PDF), one record per line.
+key: fixture_records_pdf
+schema_version: 1
+routing:
+  - match: {doc_type: [report]}
+  # Narrower than the generic page rule of docs_html: higher priority wins.
+  - match: {doc_type: [page_html], title: {regex: '^\s*Notice (?:No\.|N)'}}
+    priority: 10
+top_k: 5
+chunk_max_tokens: 400
+parser_key: simple
+cleaners:
+  - key: strip_lines
+    params: {patterns: ['^\s*\d{1,3}\s*$']}
+  - key: normalize_whitespace
+    params: {collapse_inner_spaces: true, strip_lines: true, max_blank_lines: 1}
+chunker_key: records
+chunker_params:
+  group_levels:
+    - name: section
+      pattern: '^(?P<section>[A-D])\.\s+(?P<section_name>[A-Z][A-Z ,]+)$'
+  record_pattern: '^(?P<item_num>\d{1,2}\.\d{1,2})\.?\s+(?P<item>.+?)\s*(?P<refs>(?:Ref\.\s*\S+.*)?)$'
+  group_by: section
+  header_groups: [section_name]
+  repeat_group_header: true
+metadata_fields:
+  - {name: source_id,   type: str,  source: 'document:id',       filterable: true}
+  - {name: doc_family,  type: str,  source: 'const:records_pdf', filterable: true}
+  - {name: report_number, type: int, source: 'document:number',  filterable: true, indexed: true}
+  - {name: section,     type: str,  source: 'group:section_name', filterable: true}
+  - name: issued_date
+    type: date
+    source: 'document:date'
+    transforms: [{key: date_floor}]
+    filterable: true
+    indexed: true
+default_filter: null
+reranker_key: none
+retrieval_mode: hybrid

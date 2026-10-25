@@ -1,0 +1,22 @@
+# Synthetic fixture (neutral content): short question and answer pages, not validated yet.
+key: fixture_faq
+schema_version: 1
+status: draft               # loads and validates, but the profile router never selects it
+routing:
+  - match: {doc_type: [faq]}
+top_k: 5
+chunk_max_tokens: 300
+parser_key: simple
+cleaners:
+  - key: normalize_whitespace
+    params: {strip_lines: true, max_blank_lines: 1}
+chunker_key: structured
+chunker_params:
+  include_heading: true
+metadata_fields:
+  - {name: source_id,  type: str, source: 'document:id',     filterable: true}
+  - {name: doc_family, type: str, source: 'const:faq',       filterable: true}
+  - {name: topic_id,   type: int, source: 'document:number', filterable: true}
+default_filter: null
+reranker_key: none
+retrieval_mode: dense

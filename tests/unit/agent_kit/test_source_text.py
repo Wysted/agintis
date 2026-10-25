@@ -26,7 +26,7 @@ def test_a_letter_the_context_uses_is_not_flagged() -> None:
     "text",
     [
         "¿Qué plazo tiene el niño? ¡Año nuevo! Está en la 3ª y 2º cláusula, 5 µg.",
-        "Resolución Nº 12 del Compendio — «cotización» (art. 1°)",
+        "Resolución Nº 12 del Manual — «cotización» (art. 1°)",
         "A decomposed a\u0301 and n\u0303 are Spanish letters",
         "Atención \u26a0\ufe0f",
         "Sí \u2714\ufe0f",

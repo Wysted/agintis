@@ -29,7 +29,7 @@ from agintis.modules.knowledge.api import RagProfile
 from tests.fakes.retrieval import FakeTopicProbe
 from tests.unit.agent_kit.support import TENANT, runtime_for
 
-NAMES = ["ncg", "circular", "faq"]
+NAMES = ["rules", "notices", "faq"]
 PROFILES = {n: RagProfile(f"p_{n}", 3, 100, "simple", "structured") for n in NAMES}
 LOW = 0.5  # exactly representable, so the boundary comparisons are exact
 OUT = 0.25
@@ -40,7 +40,7 @@ def _scores(**by_topic: Sequence[float]) -> dict[str, Sequence[float]]:
 
 
 def _router(probe: FakeTopicProbe, bias: float = 0.0) -> EvidenceTopicRouter:
-    topics = [EvidenceTopic(n, PROFILES[n], bias if n == "ncg" else 0.0) for n in NAMES]
+    topics = [EvidenceTopic(n, PROFILES[n], bias if n == "rules" else 0.0) for n in NAMES]
     return EvidenceTopicRouter(probe, topics)
 
 
@@ -80,7 +80,7 @@ class TestBands:
 
 class TestEvidenceClarification:
     async def test_in_carries_the_topics_selected_from_the_same_probe(self) -> None:
-        probe = FakeTopicProbe({"q": _scores(ncg=[0.8, 0.2], circular=[0.3])})
+        probe = FakeTopicProbe({"q": _scores(rules=[0.8, 0.2], notices=[0.3])})
         policy = EvidenceClarification(_router(probe), LOW, OUT)
 
         decision = await policy.decide("q", _scope())
@@ -88,17 +88,17 @@ class TestEvidenceClarification:
         assert decision is not None
         assert (decision.level, decision.score) == ("in", 0.8)
         assert decision.routed is not None
-        assert [r["topic"] for r in decision.routed] == ["ncg"]
+        assert [r["topic"] for r in decision.routed] == ["rules"]
         assert probe.calls == 1  # the router was not asked again
 
     async def test_the_gray_band_is_low_and_still_routes(self) -> None:
-        probe = FakeTopicProbe({"q": _scores(circular=[0.5])})
+        probe = FakeTopicProbe({"q": _scores(notices=[0.5])})
         decision = await EvidenceClarification(_router(probe), LOW, OUT).decide("q", _scope())
 
         assert decision is not None
         assert (decision.level, decision.score) == ("low", 0.5)
         assert decision.routed is not None
-        assert decision.routed[0]["topic"] == "circular"
+        assert decision.routed[0]["topic"] == "notices"
 
     async def test_out_has_no_routed_topics(self) -> None:
         probe = FakeTopicProbe({"q": _scores(faq=[0.25])})
@@ -114,7 +114,7 @@ class TestEvidenceClarification:
 
     async def test_the_bias_never_moves_a_question_across_a_band(self) -> None:
         # raw 0.5 + bias 0.2 would be "in"; the policy reads the raw score: "low".
-        probe = FakeTopicProbe({"q": _scores(ncg=[0.5])})
+        probe = FakeTopicProbe({"q": _scores(rules=[0.5])})
         decision = await EvidenceClarification(_router(probe, bias=0.2), LOW, OUT).decide(
             "q", _scope()
         )
@@ -138,7 +138,7 @@ class TestLowBandFanOut:
         )
 
     async def test_low_searches_the_best_topics_whatever_the_margin(self) -> None:
-        probe = FakeTopicProbe({"q": _scores(ncg=[0.5], circular=[0.3], faq=[0.1])})
+        probe = FakeTopicProbe({"q": _scores(rules=[0.5], notices=[0.3], faq=[0.1])})
         policy = EvidenceClarification(self._wide(probe), LOW, OUT, low_scope_max_topics=2)
 
         decision = await policy.decide("q", _scope())
@@ -146,28 +146,28 @@ class TestLowBandFanOut:
         assert decision is not None
         assert decision.level == "low"
         assert decision.routed is not None
-        assert [r["topic"] for r in decision.routed] == ["ncg", "circular"]
+        assert [r["topic"] for r in decision.routed] == ["rules", "notices"]
 
     async def test_in_keeps_the_normal_selection(self) -> None:
-        probe = FakeTopicProbe({"q": _scores(ncg=[0.9], circular=[0.8])})
+        probe = FakeTopicProbe({"q": _scores(rules=[0.9], notices=[0.8])})
         policy = EvidenceClarification(self._wide(probe), LOW, OUT, low_scope_max_topics=3)
 
         decision = await policy.decide("q", _scope())
 
         assert decision is not None
         assert decision.routed is not None
-        assert [r["topic"] for r in decision.routed] == ["ncg"]
+        assert [r["topic"] for r in decision.routed] == ["rules"]
 
     @pytest.mark.parametrize("widen", [None, 1])
     async def test_not_above_max_topics_changes_nothing(self, widen: int | None) -> None:
-        probe = FakeTopicProbe({"q": _scores(ncg=[0.5], circular=[0.3])})
+        probe = FakeTopicProbe({"q": _scores(rules=[0.5], notices=[0.3])})
         policy = EvidenceClarification(self._wide(probe), LOW, OUT, widen)
 
         decision = await policy.decide("q", _scope())
 
         assert decision is not None
         assert decision.routed is not None
-        assert [r["topic"] for r in decision.routed] == ["ncg"]
+        assert [r["topic"] for r in decision.routed] == ["rules"]
 
     def test_a_zero_cap_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="low_scope_max_topics"):

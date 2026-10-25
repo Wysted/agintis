@@ -256,17 +256,17 @@ class TestExtractor:
             await extractor.extract("q")
 
     async def test_one_bad_field_drops_only_that_field(self) -> None:
-        # `ncg` is an int: "NCG 123" (and True) fail the strict schema as a whole; the raw JSON
+        # `ref` is an int: "REF 123" (and True) fail the strict schema as a whole; the raw JSON
         # is then validated field by field, so `kind` survives.
         profile = _profile(
             MetadataField("kind", "str", filterable=True),
-            MetadataField("ncg", "int", filterable=True),
+            MetadataField("ref", "int", filterable=True),
         )
         replies = [
-            {"kind": "memo", "ncg": "NCG 123"},
-            {"kind": "memo", "ncg": True},
-            {"kind": "memo", "ncg": 123},
-            {"kind": 7, "ncg": 123},
+            {"kind": "memo", "ref": "REF 123"},
+            {"kind": "memo", "ref": True},
+            {"kind": "memo", "ref": 123},
+            {"kind": 7, "ref": 123},
         ]
         model = ScriptedChatModel(structured=replies)
         extractor = FilterExtractor(chat_models_for(model), profile)
@@ -277,8 +277,8 @@ class TestExtractor:
         assert results == [
             [kind],
             [kind],
-            [kind, {"field": "ncg", "op": "eq", "value": 123}],
-            [{"field": "ncg", "op": "eq", "value": 123}],
+            [kind, {"field": "ref", "op": "eq", "value": 123}],
+            [{"field": "ref", "op": "eq", "value": 123}],
         ]
 
     async def test_a_bool_is_never_coerced_into_a_number_field(self) -> None:

@@ -57,8 +57,8 @@ class TestGuard:
             ("cuando ya se ha traspasado", "si aún no se ha traspasado"),
             ("", "anything"),
             ("   ", "anything"),
-            ("compatible con la pensión", "es incompatible con la pensión de vejez"),
-            ("pensión de vej", "es compatible con la pensión de vejez"),  # ends inside a word
+            ("compatible con la cuenta", "es incompatible con la cuenta de ahorro"),
+            ("cuenta de aho", "es compatible con la cuenta de ahorro"),  # ends inside a word
         ],
     )
     def test_not_found(self, quote: str, text: str) -> None:
@@ -164,16 +164,16 @@ class TestTolerantQuote:
         assert match_quote(plain(S1).replace(old, new), ANSWER) is None
 
     def test_the_probes_of_the_review_fail(self) -> None:
-        answer = "Los afiliados pueden transferir sus fondos a la AFP que elijan, según rige."
-        assert match_quote("transferir sus fondos a la AFP que elijan", answer) == "exact"
-        assert match_quote("transferir sus fondos de la AFP que elijan", answer) is None
-        assert match_quote("Los afiliados pueden transferir sus fondos a la AFP", answer) == "exact"
-        assert match_quote("Unos afiliados pueden transferir sus fondos a la AFP", answer) is None
-        by_employer = "El pago lo realiza el empleador por cuenta del afiliado y en su nombre ok."
-        assert match_quote("lo realiza el empleador para cuenta del afiliado", by_employer) is None
+        answer = "Los clientes pueden transferir sus fondos a la caja que elijan, según rige."
+        assert match_quote("transferir sus fondos a la caja que elijan", answer) == "exact"
+        assert match_quote("transferir sus fondos de la caja que elijan", answer) is None
+        assert match_quote("Los clientes pueden transferir sus fondos a la caja", answer) == "exact"
+        assert match_quote("Unos clientes pueden transferir sus fondos a la caja", answer) is None
+        by_employer = "El pago lo realiza el empleador por cuenta del cliente y en su nombre ok."
+        assert match_quote("lo realiza el empleador para cuenta del cliente", by_employer) is None
 
     def test_a_demonstrative_pair_is_interchangeable(self) -> None:
-        answer = "Dicho plazo vence cuando el afiliado cumple la edad exigida por ley vigente."
+        answer = "Dicho plazo vence cuando el cliente cumple la edad exigida por ley vigente."
         assert match_quote(answer.replace("Dicho", "Ese"), answer) == "fuzzy"
 
     @pytest.mark.parametrize(
@@ -458,13 +458,13 @@ class TestEdgeAndMarkup:
 
     @pytest.mark.parametrize("word", ["sesenta", "no", "nunca"])
     def test_emphasized_watched_fragment_must_be_in_the_source(self, word: str) -> None:
-        source = ["El afiliado puede pensionarse por vejez al cumplir la edad legal."]
-        quote = f"El afiliado puede pensionarse por vejez … _{word}_"
+        source = ["El cliente puede inscribirse por internet al cumplir la edad legal."]
+        quote = f"El cliente puede inscribirse por internet … _{word}_"
         assert match_evidence(quote, source) is None
 
     def test_emphasized_watched_fragment_present_in_the_source_passes(self) -> None:
-        source = ["El afiliado puede pensionarse por vejez al cumplir sesenta años."]
-        quote = "El afiliado puede pensionarse por vejez … _sesenta_"
+        source = ["El cliente puede inscribirse por internet al cumplir sesenta años."]
+        quote = "El cliente puede inscribirse por internet … _sesenta_"
         assert match_evidence(quote, source) == "exact"
 
     def test_emphasis_with_underscores_inside_is_not_unwrapped(self) -> None:

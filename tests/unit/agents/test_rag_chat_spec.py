@@ -31,7 +31,8 @@ from agintis.modules.knowledge.api import (
 from tests.fakes.knowledge import InMemoryChunkRepository
 from tests.fakes.llm import chat_models_for
 from tests.fakes.retrieval import FakeRetrieval
-from tests.support.postgres import PROJECT_ROOT
+from tests.support.multi_profile_case import AGENTS_DIR as CASE_AGENTS_DIR
+from tests.support.multi_profile_case import PROFILES_DIR as CASE_PROFILES_DIR
 
 PROFILE = RagProfile(
     "docs",
@@ -422,16 +423,14 @@ class TestMultiTopicSpec:
         assert "nope2" in str(info.value)
 
 
-class TestSpensionesAgent:
-    """The real case config against the real case profiles (no network, no database)."""
+class TestMultiTopicAgentFixture:
+    """A multi-topic YAML agent against the synthetic multi-profile case (no network, no DB)."""
 
-    PROFILES_DIR = PROJECT_ROOT / "case" / "spensiones" / "profiles"
-    AGENTS_DIR = PROJECT_ROOT / "case" / "spensiones" / "agents"
-    FORBIDDEN: ClassVar[set[str]] = {"source_id", "doc_family", "cited_laws", "content_mode"}
+    FORBIDDEN: ClassVar[set[str]] = {"source_id", "doc_family", "content_mode"}
 
     def _load(self) -> tuple[AgentSpec, RagProfileRegistry]:
-        registry = RagProfileRegistry(load_profiles_dir(self.PROFILES_DIR))
-        (spec,) = load_agent_specs(self.AGENTS_DIR)
+        registry = RagProfileRegistry(load_profiles_dir(CASE_PROFILES_DIR))
+        (spec,) = load_agent_specs(CASE_AGENTS_DIR)
         return spec, registry
 
     def test_it_loads_and_validates_without_warnings(
@@ -442,59 +441,38 @@ class TestSpensionesAgent:
             validate_agent_specs([spec], registry)
 
         # Every topic has an explicit allowlist and no knob of the other router is set; the only
-        # warning is the known one: no reranker deployed, so its single rewrite never fires.
+        # warning is the known one: no reranker configured, so its single rewrite never fires.
         assert [r.getMessage() for r in caplog.records if r.levelname == "WARNING"] == [
-            "agent 'spensiones-rag': sufficiency 'relevance' with max_rewrites=1 but no topic "
+            "agent 'fixture-rag': sufficiency 'relevance' with max_rewrites=1 but no topic "
             "profile has a reranker: the rewrite loop never fires without a reranker"
         ]
-        assert spec.id == "spensiones-rag"
+        assert spec.id == "fixture-rag"
         assert spec.uses_evidence_router
         assert not spec.uses_llm_router
 
-    def test_the_evidence_knobs_are_the_pre_registered_defaults_with_no_bias(self) -> None:
+    def test_the_evidence_knobs_are_the_defaults_with_no_bias(self) -> None:
         spec, _ = self._load()
 
         assert (spec.evidence_aggregate, spec.evidence_margin, spec.probe_k) == ("max", 0.02, 3)
         assert spec.max_topics == 2
         assert {"evidence_margin", "evidence_aggregate", "probe_k"} <= spec.model_fields_set
-        assert [t.evidence_bias for t in spec.topics] == [0.0] * 7  # calibrated on a dev set only
+        assert [t.evidence_bias for t in spec.topics] == [0.0] * 3
 
-    def test_one_topic_per_profile_with_a_spanish_description(self) -> None:
+    def test_one_topic_per_profile_with_a_description(self) -> None:
         spec, registry = self._load()
 
         assert {t.profile for t in spec.topics} == {p.name for p in registry.all()}
-        assert len(spec.topics) == 7
+        assert len(spec.topics) == 3
         assert all(len(t.description) > 40 for t in spec.topics)
 
     def test_the_allowlists(self) -> None:
         spec, _ = self._load()
         filters = {t.name: set(t.filters or {}) for t in spec.topics}
 
-        assert filters["compendio"] == {
-            "system",
-            "libro",
-            "titulo",
-            "letra",
-            "capitulo",
-            "anexo",
-            "numeros",
-            "amended_by_ncg",
-        }
-        assert filters["ncg"] == {"ncg_number", "issued_date"}
-        assert filters["circular"] == {"circular_number", "series", "issued_date"}
-        assert filters["resolucion"] == {"resolution_number", "issued_date"}
-        assert filters["jurisprudencia_nota"] == {"nota_number", "issued_date"}
-        assert filters["articulo_faq"] == {"aid"}
-        assert filters["jurisprudencia_indice"] == set()
+        assert filters["pages"] == {"page_id"}
+        assert filters["reports"] == {"report_number", "issued_date"}
+        assert filters["faq"] == set()
         assert not self.FORBIDDEN & set().union(*filters.values())
-
-    def test_the_system_hint_only_asks_for_the_cesantia_value(self) -> None:
-        spec, _ = self._load()
-        compendio = next(t for t in spec.topics if t.name == "compendio")
-        hint = (compendio.filters or {})["system"]
-
-        assert "SOLO el valor SC" in hint
-        assert "nunca uses SP" in hint
 
     def test_it_builds_the_runner_with_the_evidence_router_and_no_router_model(self) -> None:
         spec, registry = self._load()
@@ -503,7 +481,7 @@ class TestSpensionesAgent:
 
         (runner,) = rag_chat_runners([spec], registry, deps)
 
-        assert runner.agent_id == "spensiones-rag"
+        assert runner.agent_id == "fixture-rag"
         assert isinstance(
             build_router(spec, deps.chat_models, probe=probe, profiles=registry),
             EvidenceTopicRouter,
@@ -526,7 +504,7 @@ class TestSpensionesAgent:
 
         (runner,) = rag_chat_runners([llm], registry, deps)
 
-        assert runner.agent_id == "spensiones-rag"
+        assert runner.agent_id == "fixture-rag"
         router = build_router(llm, deps.chat_models)
         assert isinstance(router, LlmTopicRouter)
         items = build_route_schema([t.name for t in llm.topics]).model_json_schema()
