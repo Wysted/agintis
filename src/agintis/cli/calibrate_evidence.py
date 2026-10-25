@@ -4,7 +4,7 @@
         --agent ID FILE.jsonl [FILE.jsonl ...] [--tenant T] [--analyze] [--report FILE]
 
 Each JSON Lines row is `{"id", "question", "label": "in" | "out"}` plus an optional `category`
-(default: the second segment of the id, `out-pens-01` -> `pens`). `in` = answerable from the
+(default: the second segment of the id, `out-bill-01` -> `bill`). `in` = answerable from the
 corpus, `out` = not (the ingested corpus of the tenant holds no answer). The files are DEV sets:
 never the held-out eval questions.
 

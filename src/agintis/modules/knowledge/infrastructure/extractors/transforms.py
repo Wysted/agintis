@@ -28,7 +28,7 @@ class ValueMapParams(ParamsModel):
 
 
 class ValueMap(ParamsTransform[ValueMapParams]):
-    """Replace known strings (`area: pensiones -> SP`); unknown values pass through."""
+    """Replace known strings (`area: billing -> BL`); unknown values pass through."""
 
     key = "value_map"
     params_model = ValueMapParams

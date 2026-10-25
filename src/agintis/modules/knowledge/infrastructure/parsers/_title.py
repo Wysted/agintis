@@ -15,7 +15,7 @@ def _stem(segment: str) -> str:
 
 
 def _query_file_stem(query: str) -> str | None:
-    """Stem of the first query value that looks like a file path (`?namefile=NCG-SP/N0372.pdf`)."""
+    """Stem of the first query value that looks like a file path (`?namefile=REF-X/N0372.pdf`)."""
     for _, value in parse_qsl(query, keep_blank_values=False):
         name = value.rstrip("/").replace("\\", "/").rsplit("/", 1)[-1]
         if _FILE_NAME.fullmatch(name):

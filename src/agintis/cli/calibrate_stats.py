@@ -63,7 +63,7 @@ def quantile(sorted_values: Sequence[float], q: float) -> float:
 
 
 def category_of(query_id: str) -> str:
-    """The stratum of an id: `out-pens-01` -> `pens`, `in-ncg-20` -> `ncg` (else the id itself)."""
+    """The stratum of an id: `out-bill-01` -> `bill`, `in-ref-20` -> `ref` (else the id itself)."""
     parts = query_id.split("-")
     return parts[1] if len(parts) >= 3 else parts[0]
 
